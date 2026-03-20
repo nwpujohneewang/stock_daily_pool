@@ -8,8 +8,8 @@ import (
 	"sync"
 	"time"
 
+	"stock/config"
 	"stock/internal/cache"
-	"stock/internal/config"
 	"stock/internal/model"
 	"stock/internal/pkg/limiter"
 	"stock/internal/pkg/shard"

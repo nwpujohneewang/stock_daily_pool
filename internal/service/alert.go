@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"time"
 
+	"stock/config"
 	"stock/internal/cache"
-	"stock/internal/config"
 	"stock/internal/model"
 	"stock/internal/repo"
 )

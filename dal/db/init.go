@@ -2,7 +2,7 @@ package db
 
 import (
 	"fmt"
-	"stock/internal/config"
+	"stock/config"
 
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"

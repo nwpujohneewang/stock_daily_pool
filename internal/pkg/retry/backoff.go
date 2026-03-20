@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"stock/internal/config"
+	"stock/config"
 )
 
 type RetryableFunc func(ctx context.Context) error

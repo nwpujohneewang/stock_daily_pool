@@ -12,9 +12,9 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/redis/go-redis/v9"
+	"stock/config"
 	"stock/dal/db"
 	"stock/internal/cache"
-	"stock/internal/config"
 	"stock/internal/external/llm"
 	"stock/internal/external/tushare"
 	"stock/internal/handler"

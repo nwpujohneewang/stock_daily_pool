@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"time"
 
-	"stock/internal/config"
+	"stock/config"
 )
 
 type Client struct {

@@ -13,8 +13,8 @@ import (
 	"time"
 
 	"gorm.io/gorm"
+	"stock/config"
 	"stock/dal/db"
-	"stock/internal/config"
 )
 
 // mask 隐藏敏感字符串中间部分，只显示前4位和后4位
@@ -76,9 +76,9 @@ func parseCurl(curlCmd string) (*CurlParams, error) {
 }
 
 func main() {
-	startDate := flag.String("start", "2023-08-10", "起始日期 YYYY-MM-DD")
+	startDate := flag.String("start", "2025-01-28", "起始日期 YYYY-MM-DD")
 	endDate := flag.String("end", "", "结束日期 YYYY-MM-DD，默认为今天")
-	curlCmd := flag.String("curl", "curl 'https://app.jiuyangongshe.com/jystock-app/api/v1/action/field' \\\n  -H 'Accept: application/json, text/plain, */*' \\\n  -H 'Accept-Language: zh-CN,zh;q=0.9,en;q=0.8,en-GB;q=0.7,en-US;q=0.6' \\\n  -H 'Connection: keep-alive' \\\n  -H 'Content-Type: application/json' \\\n  -b 'SESSION=ZjY3ZTZkNjgtNDAyMC00YmNmLTlkMGMtZWZjOGJmZGExMjVm; Hm_lvt_58aa18061df7855800f2a1b32d6da7f4=1773930659; Hm_lpvt_58aa18061df7855800f2a1b32d6da7f4=1774010102' \\\n  -H 'Origin: https://www.jiuyangongshe.com' \\\n  -H 'Referer: https://www.jiuyangongshe.com/' \\\n  -H 'Sec-Fetch-Dest: empty' \\\n  -H 'Sec-Fetch-Mode: cors' \\\n  -H 'Sec-Fetch-Site: same-site' \\\n  -H 'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36 Edg/146.0.0.0' \\\n  -H 'platform: 3' \\\n  -H 'sec-ch-ua: \"Chromium\";v=\"146\", \"Not-A.Brand\";v=\"24\", \"Microsoft Edge\";v=\"146\"' \\\n  -H 'sec-ch-ua-mobile: ?0' \\\n  -H 'sec-ch-ua-platform: \"Windows\"' \\\n  -H 'timestamp: 1774010106306' \\\n  -H 'token: 1caa336d627eced4388084b8768ba067' \\\n  --data-raw '{\"date\":\"2023-04-28\",\"pc\":1}'", "直接从浏览器复制完整的 curl 命令（包含 -b -H token -H timestamp 等），程序会自动提取 token/cookie/timestamp")
+	curlCmd := flag.String("curl", "curl 'https://app.jiuyangongshe.com/jystock-app/api/v1/action/field' \\\n  -H 'Accept: application/json, text/plain, */*' \\\n  -H 'Accept-Language: zh-CN,zh;q=0.9,en;q=0.8,en-GB;q=0.7,en-US;q=0.6' \\\n  -H 'Connection: keep-alive' \\\n  -H 'Content-Type: application/json' \\\n  -b 'SESSION=ZjY3ZTZkNjgtNDAyMC00YmNmLTlkMGMtZWZjOGJmZGExMjVm; Hm_lvt_58aa18061df7855800f2a1b32d6da7f4=1773930659; Hm_lpvt_58aa18061df7855800f2a1b32d6da7f4=1774021429' \\\n  -H 'Origin: https://www.jiuyangongshe.com' \\\n  -H 'Referer: https://www.jiuyangongshe.com/' \\\n  -H 'Sec-Fetch-Dest: empty' \\\n  -H 'Sec-Fetch-Mode: cors' \\\n  -H 'Sec-Fetch-Site: same-site' \\\n  -H 'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36 Edg/146.0.0.0' \\\n  -H 'platform: 3' \\\n  -H 'sec-ch-ua: \"Chromium\";v=\"146\", \"Not-A.Brand\";v=\"24\", \"Microsoft Edge\";v=\"146\"' \\\n  -H 'sec-ch-ua-mobile: ?0' \\\n  -H 'sec-ch-ua-platform: \"Windows\"' \\\n  -H 'timestamp: 1774021443624' \\\n  -H 'token: 74160be588a74bee7853c7f13c8c07d9' \\\n  --data-raw '{\"date\":\"2025-09-19\",\"pc\":1}'", "直接从浏览器复制完整的 curl 命令（包含 -b -H token -H timestamp 等），程序会自动提取 token/cookie/timestamp")
 	token := flag.String("token", "", "Jiuyan Token（从 -curl 参数自动提取，也可手动指定）")
 	cookie := flag.String("cookie", "", "Jiuyan Cookie（从 -curl 参数自动提取，也可手动指定）")
 	timestamp := flag.String("timestamp", "", "Jiuyan Timestamp（从 -curl 参数自动提取，也可手动指定）")
@@ -101,6 +101,7 @@ func main() {
 		if *timestamp == "" {
 			*timestamp = params.Timestamp
 		}
+		*startDate = params.Date
 	}
 
 	if *token == "" || *cookie == "" {
@@ -181,6 +182,7 @@ func curlJiuyan(date, token, cookie string, timestamp string) ([]jiuyanField, er
 
 	args := []string{
 		"-s", "-X", "POST",
+		"-x", "http://127.0.0.1:7890",
 		"https://app.jiuyangongshe.com/jystock-app/api/v1/action/field",
 		"-H", "Accept: application/json, text/plain, */*",
 		"-H", "Accept-Language: zh-CN,zh;q=0.9,en;q=0.8,en-GB;q=0.7,en-US;q=0.6",
@@ -265,6 +267,8 @@ func crawlOneDate(ctx context.Context, db *gorm.DB, date, token, cookie string, 
 			log.Printf("upsert topic %s failed: %v", field.Name, err)
 		}
 	}
+
+	time.Sleep(1 * time.Second)
 
 	log.Printf("wrote %d topics, %d stocks to jiuyan_raw_data", len(fields), totalStocks)
 	return nil

@@ -6,8 +6,8 @@ import (
 	"time"
 
 	"github.com/robfig/cron/v3"
+	"stock/config"
 	"stock/internal/cache"
-	"stock/internal/config"
 	"stock/internal/repo"
 	"stock/internal/service"
 )

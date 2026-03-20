@@ -6,7 +6,7 @@ import (
 	"log"
 	"time"
 
-	"stock/internal/config"
+	"stock/config"
 	"stock/internal/external/tushare"
 	"stock/internal/model"
 	"stock/internal/pkg/limiter"

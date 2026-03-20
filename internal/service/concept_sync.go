@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"log"
 
+	"stock/config"
 	"stock/internal/cache"
-	"stock/internal/config"
 	"stock/internal/external/tushare"
 	"stock/internal/repo"
 )

@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-	"stock/internal/config"
+	"stock/config"
 )
 
 var upgrader = websocket.Upgrader{

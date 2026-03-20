@@ -6,7 +6,7 @@ import (
 	"log"
 	"time"
 
-	"stock/internal/config"
+	"stock/config"
 	"stock/internal/external/jiuyan"
 	"stock/internal/model"
 	"stock/internal/pkg/converter"

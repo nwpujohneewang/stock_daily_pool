@@ -10,6 +10,7 @@ CREATE TABLE IF NOT EXISTS stock_basic_info (
     name            VARCHAR(64)     NOT NULL,
     exchange        VARCHAR(8)      NOT NULL,
     board_code      VARCHAR(16)     NOT NULL DEFAULT 'MAIN',
+    area            VARCHAR(16),
     industry        VARCHAR(64),
     is_st           BOOLEAN         NOT NULL DEFAULT FALSE,
     list_date       DATE,
@@ -30,5 +31,6 @@ COMMENT ON COLUMN stock_basic_info.exchange          IS '交易所编码：SSE=�
 COMMENT ON COLUMN stock_basic_info.board_code        IS '板块编码，用于涨跌停规则: MAIN/GEM/STAR/BSE';
 COMMENT ON COLUMN stock_basic_info.is_st             IS '是否ST股，ST股不参与涨停监控';
 COMMENT ON COLUMN stock_basic_info.status            IS '1=正常上市 0=停牌或退市';
+COMMENT ON COLUMN stock_basic_info.area              IS '地域'
 
 COMMIT;

@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"stock/internal/config"
+	"stock/config"
 )
 
 type HTTPError struct {
@@ -62,8 +62,7 @@ func NewClient(cfg *config.TushareConfig, retryCfg config.RetryConfig) *Client {
 		httpClient: &http.Client{
 			Timeout: time.Duration(cfg.Timeout) * time.Second,
 		},
-		rateLimit: cfg.RateLimitPerMin,
-		retryCfg:  retryCfg,
+		retryCfg: retryCfg,
 	}
 }
 
