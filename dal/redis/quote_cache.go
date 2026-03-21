@@ -3,14 +3,13 @@ package redis
 import (
 	"context"
 	"fmt"
+	"stock/model/dal_model"
 	"time"
-
-	"stock/internal/model"
 )
 
 type QuoteCacheInterface interface {
-	Get(ctx context.Context, tsCode string) (*model.StockQuote, error)
-	Set(ctx context.Context, quote *model.StockQuote) error
+	Get(ctx context.Context, tsCode string) (*dal_model.StockQuote, error)
+	Set(ctx context.Context, quote *dal_model.StockQuote) error
 	Delete(ctx context.Context, tsCode string) error
 }
 
@@ -22,7 +21,7 @@ func NewQuoteCache() *QuoteCacheImpl {
 	return &QuoteCacheImpl{}
 }
 
-func (c QuoteCacheImpl) Get(ctx context.Context, tsCode string) (*model.StockQuote, error) {
+func (c QuoteCacheImpl) Get(ctx context.Context, tsCode string) (*dal_model.StockQuote, error) {
 	key := fmt.Sprintf("rt:quote:%s", tsCode)
 	data, err := RedisClient(ctx).HGetAll(ctx, key).Result()
 	if err != nil {
@@ -32,7 +31,7 @@ func (c QuoteCacheImpl) Get(ctx context.Context, tsCode string) (*model.StockQuo
 		return nil, nil
 	}
 
-	quote := &model.StockQuote{TsCode: tsCode}
+	quote := &dal_model.StockQuote{TsCode: tsCode}
 	if v, ok := data["price"]; ok {
 		fmt.Sscanf(v, "%lf", &quote.Price)
 	}
@@ -61,7 +60,7 @@ func (c QuoteCacheImpl) Get(ctx context.Context, tsCode string) (*model.StockQuo
 	return quote, nil
 }
 
-func (c QuoteCacheImpl) Set(ctx context.Context, quote *model.StockQuote) error {
+func (c QuoteCacheImpl) Set(ctx context.Context, quote *dal_model.StockQuote) error {
 	key := fmt.Sprintf("rt:quote:%s", quote.TsCode)
 
 	fields := map[string]interface{}{

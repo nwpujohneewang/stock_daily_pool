@@ -4,12 +4,12 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"stock/model/dal_model"
 	"time"
 
 	"stock/config"
 	"stock/dal/db"
 	"stock/internal/external/jiuyan"
-	"stock/internal/model"
 	"stock/internal/pkg/converter"
 )
 
@@ -44,7 +44,7 @@ func (s *CrawlerService) CrawlDate(ctx context.Context, date string) error {
 		}
 
 		now := time.Now()
-		topic := &model.Topic{
+		topic := &dal_model.Topic{
 			Name:          topicName,
 			Source:        "jiuyan",
 			JiuyanFieldID: &field.ActionFieldID,
@@ -67,7 +67,7 @@ func (s *CrawlerService) CrawlDate(ctx context.Context, date string) error {
 				continue
 			}
 
-			mapping := &model.StockTopicRelation{
+			mapping := &dal_model.StockTopicRelation{
 				TsCode:        tsCode,
 				TopicID:       topicID,
 				Source:        "jiuyan",

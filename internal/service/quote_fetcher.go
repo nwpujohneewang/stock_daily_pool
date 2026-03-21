@@ -4,12 +4,12 @@ import (
 	"context"
 	"log"
 	"stock/dal/redis"
+	"stock/model/dal_model"
 	"sync"
 	"time"
 
 	"stock/dal/db"
 	"stock/internal/external/tushare"
-	"stock/internal/model"
 	"stock/internal/pkg/shard"
 )
 
@@ -67,7 +67,7 @@ func (f *QuoteFetcher) fetchBatch(ctx context.Context, tsCodes []string) {
 	now := time.Now()
 	quoteCache := redis.NewQuoteCache()
 	for _, q := range quotes {
-		stockQuote := &model.StockQuote{
+		stockQuote := &dal_model.StockQuote{
 			TsCode:       q.TsCode,
 			PreClose:     q.PreClose,
 			Price:        q.Price,

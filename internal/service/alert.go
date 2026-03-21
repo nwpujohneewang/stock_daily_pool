@@ -4,11 +4,11 @@ import (
 	"context"
 	"fmt"
 	"stock/dal/redis"
+	"stock/model/dal_model"
 	"time"
 
 	"stock/config"
 	"stock/dal/db"
-	"stock/internal/model"
 )
 
 type AlertService struct {
@@ -84,7 +84,7 @@ func (s *AlertService) CheckAndAlert(ctx context.Context, input AlertCheckInput)
 		return nil, fmt.Errorf("mark alerted: %w", err)
 	}
 
-	alert := &model.StrategyAlert{
+	alert := &dal_model.StrategyAlert{
 		Date:        time.Now(),
 		TsCode:      input.TsCode,
 		StockName:   input.StockName,
@@ -119,12 +119,12 @@ func (s *AlertService) checkFocus(ctx context.Context, input AlertCheckInput) (i
 	return 0, ""
 }
 
-func (s *AlertService) GetTodayAlerts(ctx context.Context, date string) ([]model.StrategyAlert, error) {
+func (s *AlertService) GetTodayAlerts(ctx context.Context, date string) ([]dal_model.StrategyAlert, error) {
 	alertRepo := db.NewAlertRepository()
 	return alertRepo.GetByDate(ctx, date)
 }
 
-func (s *AlertService) GetHistoryAlerts(ctx context.Context, startDate, endDate string, topicID *int64, page, pageSize int) ([]model.StrategyAlert, int64, error) {
+func (s *AlertService) GetHistoryAlerts(ctx context.Context, startDate, endDate string, topicID *int64, page, pageSize int) ([]dal_model.StrategyAlert, int64, error) {
 	alertRepo := db.NewAlertRepository()
 	return alertRepo.GetHistory(ctx, startDate, endDate, topicID, page, pageSize)
 }

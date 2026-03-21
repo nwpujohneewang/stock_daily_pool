@@ -1,9 +1,8 @@
 package limiter
 
 import (
+	"stock/model/dal_model"
 	"testing"
-
-	"stock/internal/model"
 )
 
 func TestCalcLimitUpPrice(t *testing.T) {
@@ -50,53 +49,53 @@ func TestCalcLimitUpPrice_InvalidInput(t *testing.T) {
 }
 
 func TestDetectLimitUp(t *testing.T) {
-	rule := &model.BoardRule{
-		BoardCode:      model.BoardMain,
+	rule := &dal_model.BoardRule{
+		BoardCode:      dal_model.BoardMain,
 		LimitUpRatio:   0.10,
 		LimitDownRatio: -0.10,
 	}
 
 	tests := []struct {
 		name          string
-		input         model.DetectInput
+		input         dal_model.DetectInput
 		wantIsLimitUp bool
 		wantIsAbove5  bool
 	}{
 		{
 			name: "涨停",
-			input: model.DetectInput{
+			input: dal_model.DetectInput{
 				TsCode:       "000001.SZ",
 				CurrentPrice: 11.00,
 				PreClose:     10.00,
 				ChangePct:    10.0,
 				IsST:         false,
-				PrevState:    model.LimitStateNone,
+				PrevState:    dal_model.LimitStateNone,
 			},
 			wantIsLimitUp: true,
 			wantIsAbove5:  false,
 		},
 		{
 			name: "涨幅5%以上但未涨停",
-			input: model.DetectInput{
+			input: dal_model.DetectInput{
 				TsCode:       "000001.SZ",
 				CurrentPrice: 10.50,
 				PreClose:     10.00,
 				ChangePct:    5.0,
 				IsST:         false,
-				PrevState:    model.LimitStateNone,
+				PrevState:    dal_model.LimitStateNone,
 			},
 			wantIsLimitUp: false,
 			wantIsAbove5:  true,
 		},
 		{
 			name: "ST股票跳过",
-			input: model.DetectInput{
+			input: dal_model.DetectInput{
 				TsCode:       "000001.SZ",
 				CurrentPrice: 11.00,
 				PreClose:     10.00,
 				ChangePct:    10.0,
 				IsST:         true,
-				PrevState:    model.LimitStateNone,
+				PrevState:    dal_model.LimitStateNone,
 			},
 			wantIsLimitUp: false,
 			wantIsAbove5:  false,

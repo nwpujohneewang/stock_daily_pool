@@ -6,12 +6,12 @@ import (
 	"fmt"
 	"log"
 	"stock/dal/redis"
+	"stock/model/dal_model"
 	"sync"
 	"time"
 
 	"stock/config"
 	"stock/dal/db"
-	"stock/internal/model"
 	"stock/internal/pkg/limiter"
 	"stock/internal/pkg/shard"
 )
@@ -21,7 +21,7 @@ type MonitorService struct {
 	classifySvc  *ClassifyService
 	alertSvc     *AlertService
 	cfg          *config.MonitorConfig
-	boardRules   map[model.BoardCode]*model.BoardRule
+	boardRules   map[dal_model.BoardCode]*dal_model.BoardRule
 	stockStates  map[string]int
 	mu           sync.RWMutex
 	logger       *log.Logger
@@ -44,16 +44,16 @@ func NewMonitorService(
 	}
 }
 
-func initBoardRules() map[model.BoardCode]*model.BoardRule {
-	return map[model.BoardCode]*model.BoardRule{
-		model.BoardMain: {BoardCode: model.BoardMain, BoardName: "主板", LimitUpRatio: 0.10, LimitDownRatio: -0.10},
-		model.BoardGEM:  {BoardCode: model.BoardGEM, BoardName: "创业板", LimitUpRatio: 0.20, LimitDownRatio: -0.20},
-		model.BoardSTAR: {BoardCode: model.BoardSTAR, BoardName: "科创板", LimitUpRatio: 0.20, LimitDownRatio: -0.20},
-		model.BoardBSE:  {BoardCode: model.BoardBSE, BoardName: "北交所", LimitUpRatio: 0.30, LimitDownRatio: -0.30},
+func initBoardRules() map[dal_model.BoardCode]*dal_model.BoardRule {
+	return map[dal_model.BoardCode]*dal_model.BoardRule{
+		dal_model.BoardMain: {BoardCode: dal_model.BoardMain, BoardName: "主板", LimitUpRatio: 0.10, LimitDownRatio: -0.10},
+		dal_model.BoardGEM:  {BoardCode: dal_model.BoardGEM, BoardName: "创业板", LimitUpRatio: 0.20, LimitDownRatio: -0.20},
+		dal_model.BoardSTAR: {BoardCode: dal_model.BoardSTAR, BoardName: "科创板", LimitUpRatio: 0.20, LimitDownRatio: -0.20},
+		dal_model.BoardBSE:  {BoardCode: dal_model.BoardBSE, BoardName: "北交所", LimitUpRatio: 0.30, LimitDownRatio: -0.30},
 	}
 }
 
-func (s *MonitorService) DetectBoard(tsCode string) model.BoardCode {
+func (s *MonitorService) DetectBoard(tsCode string) dal_model.BoardCode {
 	return limiter.DetectBoard(tsCode[:6])
 }
 
@@ -115,7 +115,7 @@ func (s *MonitorService) processShard(ctx context.Context, date string, batch sh
 		prevState := s.stockStates[tsCode]
 		s.mu.RUnlock()
 
-		input := model.DetectInput{
+		input := dal_model.DetectInput{
 			TsCode:       tsCode,
 			StockName:    stock.Name,
 			CurrentPrice: quote.Price,
@@ -150,7 +150,7 @@ func (s *MonitorService) processShard(ctx context.Context, date string, batch sh
 	}
 }
 
-func (s *MonitorService) triggerClassifyAndAlert(ctx context.Context, date, tsCode, stockName string, quote *model.StockQuote, output model.DetectOutput) {
+func (s *MonitorService) triggerClassifyAndAlert(ctx context.Context, date, tsCode, stockName string, quote *dal_model.StockQuote, output dal_model.DetectOutput) {
 	go func() {
 		classifyCtx := context.Background()
 		topics, err := s.classifySvc.ClassifyStock(classifyCtx, tsCode)
@@ -176,8 +176,8 @@ func (s *MonitorService) triggerClassifyAndAlert(ctx context.Context, date, tsCo
 			if prevPool.ChangePct != nil {
 				prevDayPct = *prevPool.ChangePct
 			}
-			prevDayLimitUp = prevPool.PoolType == model.PoolTypeLimitUp
-			prevDayAbove5 = prevPool.PoolType == model.PoolTypeAbove5 || prevPool.PoolType == model.PoolTypeLimitUp
+			prevDayLimitUp = prevPool.PoolType == dal_model.PoolTypeLimitUp
+			prevDayAbove5 = prevPool.PoolType == dal_model.PoolTypeAbove5 || prevPool.PoolType == dal_model.PoolTypeLimitUp
 		}
 
 		topicIDs := make([]int64, len(topics))
@@ -250,7 +250,7 @@ func NewClassifyService() *ClassifyService {
 	}
 }
 
-func (s *ClassifyService) ClassifyStock(ctx context.Context, tsCode string) ([]model.TopicMapping, error) {
+func (s *ClassifyService) ClassifyStock(ctx context.Context, tsCode string) ([]dal_model.TopicMapping, error) {
 	date := time.Now().Format("2006-01-02")
 
 	mappingCache := redis.NewMappingCache()
@@ -263,7 +263,7 @@ func (s *ClassifyService) ClassifyStock(ctx context.Context, tsCode string) ([]m
 		for _, m := range mappings {
 			if m.Source == "manual" {
 				s.saveEvidence(ctx, date, tsCode, m.TopicID, "L1_REDIS", "MANUAL", mappings, "", 1.0)
-				return []model.TopicMapping{m}, nil
+				return []dal_model.TopicMapping{m}, nil
 			}
 		}
 		s.saveEvidence(ctx, date, tsCode, mappings[0].TopicID, "L1_REDIS", "JIUYAN_ATTR", mappings, "", 0.8)
@@ -278,14 +278,14 @@ func (s *ClassifyService) ClassifyStock(ctx context.Context, tsCode string) ([]m
 
 	if len(pgMappings) > 0 {
 		topicRepo := db.NewTopicRepository()
-		result := make([]model.TopicMapping, len(pgMappings))
+		result := make([]dal_model.TopicMapping, len(pgMappings))
 		for i, m := range pgMappings {
 			topic, _ := topicRepo.GetByID(ctx, m.TopicID)
 			topicName := ""
 			if topic != nil {
 				topicName = topic.Name
 			}
-			result[i] = model.TopicMapping{
+			result[i] = dal_model.TopicMapping{
 				TopicID:      m.TopicID,
 				TopicName:    topicName,
 				Source:       m.Source,
@@ -309,14 +309,14 @@ func (s *ClassifyService) ClassifyStock(ctx context.Context, tsCode string) ([]m
 	return nil, nil
 }
 
-func (s *ClassifyService) saveEvidence(ctx context.Context, date, tsCode string, topicID int64, layer, strategy string, candidates []model.TopicMapping, evidenceText string, confidence float64) {
+func (s *ClassifyService) saveEvidence(ctx context.Context, date, tsCode string, topicID int64, layer, strategy string, candidates []dal_model.TopicMapping, evidenceText string, confidence float64) {
 	evidenceRepo := db.NewEvidenceRepository()
 	if evidenceRepo == nil {
 		return
 	}
 	candidateScores, _ := json.Marshal(candidates)
 	parsedDate, _ := time.Parse("2006-01-02", date)
-	e := model.ClassificationAuditLog{
+	e := dal_model.ClassificationAuditLog{
 		Date:            parsedDate,
 		TsCode:          tsCode,
 		TopicID:         &topicID,

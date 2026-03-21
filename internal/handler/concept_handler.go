@@ -3,7 +3,7 @@ package handler
 import (
 	"net/http"
 	"stock/dal/db"
-	"stock/internal/model"
+	"stock/model/dal_model"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
@@ -56,7 +56,7 @@ func (h *ConceptHandler) ListMappings(c *gin.Context) {
 	}
 
 	type ConceptWithMapping struct {
-		model.TushareConcept
+		dal_model.TushareConcept
 		IsMapped  bool   `json:"is_mapped"`
 		TopicID   *int64 `json:"topic_id,omitempty"`
 		TopicName string `json:"topic_name,omitempty"`

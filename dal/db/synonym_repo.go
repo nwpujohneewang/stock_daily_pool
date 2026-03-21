@@ -3,18 +3,17 @@ package db
 import (
 	"context"
 	"fmt"
-
-	"stock/internal/model"
+	"stock/model/dal_model"
 )
 
 var _ SynonymRepository = (*SynonymRepoImpl)(nil)
 
 type SynonymRepository interface {
-	GetByTopicID(ctx context.Context, topicID int64) ([]model.TopicSynonym, error)
-	GetBySynonym(ctx context.Context, synonym string) (*model.TopicSynonym, error)
-	Create(ctx context.Context, synonym model.TopicSynonym) (*model.TopicSynonym, error)
+	GetByTopicID(ctx context.Context, topicID int64) ([]dal_model.TopicSynonym, error)
+	GetBySynonym(ctx context.Context, synonym string) (*dal_model.TopicSynonym, error)
+	Create(ctx context.Context, synonym dal_model.TopicSynonym) (*dal_model.TopicSynonym, error)
 	Delete(ctx context.Context, id int64) error
-	BatchCreate(ctx context.Context, synonyms []model.TopicSynonym) error
+	BatchCreate(ctx context.Context, synonyms []dal_model.TopicSynonym) error
 	GetAllSynonymsMap(ctx context.Context) (map[string]int64, error)
 }
 
@@ -24,8 +23,8 @@ func NewSynonymRepository() *SynonymRepoImpl {
 	return &SynonymRepoImpl{}
 }
 
-func (r SynonymRepoImpl) GetByTopicID(ctx context.Context, topicID int64) ([]model.TopicSynonym, error) {
-	var results []model.TopicSynonym
+func (r SynonymRepoImpl) GetByTopicID(ctx context.Context, topicID int64) ([]dal_model.TopicSynonym, error) {
+	var results []dal_model.TopicSynonym
 	err := PostgresStockDB(ctx).Where("topic_id = ?", topicID).Order("id").Find(&results).Error
 	if err != nil {
 		return nil, fmt.Errorf("query synonyms: %w", err)
@@ -33,8 +32,8 @@ func (r SynonymRepoImpl) GetByTopicID(ctx context.Context, topicID int64) ([]mod
 	return results, nil
 }
 
-func (r SynonymRepoImpl) GetBySynonym(ctx context.Context, synonym string) (*model.TopicSynonym, error) {
-	var s model.TopicSynonym
+func (r SynonymRepoImpl) GetBySynonym(ctx context.Context, synonym string) (*dal_model.TopicSynonym, error) {
+	var s dal_model.TopicSynonym
 	err := PostgresStockDB(ctx).Where("synonym = ?", synonym).First(&s).Error
 	if err != nil {
 		return nil, err
@@ -42,7 +41,7 @@ func (r SynonymRepoImpl) GetBySynonym(ctx context.Context, synonym string) (*mod
 	return &s, nil
 }
 
-func (r SynonymRepoImpl) Create(ctx context.Context, synonym model.TopicSynonym) (*model.TopicSynonym, error) {
+func (r SynonymRepoImpl) Create(ctx context.Context, synonym dal_model.TopicSynonym) (*dal_model.TopicSynonym, error) {
 	err := PostgresStockDB(ctx).Create(&synonym).Error
 	if err != nil {
 		return nil, fmt.Errorf("insert synonym: %w", err)
@@ -51,10 +50,10 @@ func (r SynonymRepoImpl) Create(ctx context.Context, synonym model.TopicSynonym)
 }
 
 func (r SynonymRepoImpl) Delete(ctx context.Context, id int64) error {
-	return PostgresStockDB(ctx).Delete(&model.TopicSynonym{}, id).Error
+	return PostgresStockDB(ctx).Delete(&dal_model.TopicSynonym{}, id).Error
 }
 
-func (r SynonymRepoImpl) BatchCreate(ctx context.Context, synonyms []model.TopicSynonym) error {
+func (r SynonymRepoImpl) BatchCreate(ctx context.Context, synonyms []dal_model.TopicSynonym) error {
 	if len(synonyms) == 0 {
 		return nil
 	}

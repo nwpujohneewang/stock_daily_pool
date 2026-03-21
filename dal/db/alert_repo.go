@@ -2,20 +2,19 @@ package db
 
 import (
 	"context"
+	"stock/model/dal_model"
 	"time"
-
-	"stock/internal/model"
 )
 
 var _ AlertRepository = (*AlertRepoImpl)(nil)
 
 type AlertRepository interface {
-	Create(ctx context.Context, alert *model.StrategyAlert) (int64, error)
-	GetTodayAlerts(ctx context.Context, date string) ([]model.StrategyAlert, error)
-	GetHistory(ctx context.Context, startDate, endDate string, topicID *int64, page, pageSize int) ([]model.StrategyAlert, int64, error)
+	Create(ctx context.Context, alert *dal_model.StrategyAlert) (int64, error)
+	GetTodayAlerts(ctx context.Context, date string) ([]dal_model.StrategyAlert, error)
+	GetHistory(ctx context.Context, startDate, endDate string, topicID *int64, page, pageSize int) ([]dal_model.StrategyAlert, int64, error)
 	IsAlerted(ctx context.Context, date, alertKey string) (bool, error)
 	MarkAlerted(ctx context.Context, date, alertKey string) error
-	GetByDate(ctx context.Context, date string) ([]model.StrategyAlert, error)
+	GetByDate(ctx context.Context, date string) ([]dal_model.StrategyAlert, error)
 }
 
 type AlertRepoImpl struct{}
@@ -24,13 +23,13 @@ func NewAlertRepository() *AlertRepoImpl {
 	return &AlertRepoImpl{}
 }
 
-func (r AlertRepoImpl) Create(ctx context.Context, alert *model.StrategyAlert) (int64, error) {
+func (r AlertRepoImpl) Create(ctx context.Context, alert *dal_model.StrategyAlert) (int64, error) {
 	err := PostgresStockDB(ctx).Create(alert).Error
 	return alert.ID, err
 }
 
-func (r AlertRepoImpl) GetTodayAlerts(ctx context.Context, date string) ([]model.StrategyAlert, error) {
-	var alerts []model.StrategyAlert
+func (r AlertRepoImpl) GetTodayAlerts(ctx context.Context, date string) ([]dal_model.StrategyAlert, error) {
+	var alerts []dal_model.StrategyAlert
 	err := PostgresStockDB(ctx).Where("date = ?", date).Order("trigger_time DESC").Find(&alerts).Error
 	if err != nil {
 		return nil, err
@@ -38,11 +37,11 @@ func (r AlertRepoImpl) GetTodayAlerts(ctx context.Context, date string) ([]model
 	return alerts, nil
 }
 
-func (r AlertRepoImpl) GetHistory(ctx context.Context, startDate, endDate string, topicID *int64, page, pageSize int) ([]model.StrategyAlert, int64, error) {
+func (r AlertRepoImpl) GetHistory(ctx context.Context, startDate, endDate string, topicID *int64, page, pageSize int) ([]dal_model.StrategyAlert, int64, error) {
 	offset := (page - 1) * pageSize
 
 	var total int64
-	countQuery := PostgresStockDB(ctx).Model(&model.StrategyAlert{}).Where("date >= ? AND date <= ?", startDate, endDate)
+	countQuery := PostgresStockDB(ctx).Model(&dal_model.StrategyAlert{}).Where("date >= ? AND date <= ?", startDate, endDate)
 	if topicID != nil {
 		countQuery = countQuery.Where("topic_id = ?", *topicID)
 	}
@@ -50,7 +49,7 @@ func (r AlertRepoImpl) GetHistory(ctx context.Context, startDate, endDate string
 		return nil, 0, err
 	}
 
-	var alerts []model.StrategyAlert
+	var alerts []dal_model.StrategyAlert
 	query := PostgresStockDB(ctx).Where("date >= ? AND date <= ?", startDate, endDate).
 		Order("trigger_time DESC").Limit(pageSize).Offset(offset)
 	if topicID != nil {
@@ -92,7 +91,7 @@ func (r AlertRepoImpl) MarkAlerted(ctx context.Context, date, alertKey string) e
 	}
 
 	dateParsed, _ := time.Parse("2006-01-02", date)
-	return PostgresStockDB(ctx).Create(&model.StrategyAlert{
+	return PostgresStockDB(ctx).Create(&dal_model.StrategyAlert{
 		Date:      dateParsed,
 		TsCode:    tsCode,
 		TopicID:   topicID,
@@ -101,6 +100,6 @@ func (r AlertRepoImpl) MarkAlerted(ctx context.Context, date, alertKey string) e
 	}).Error
 }
 
-func (r AlertRepoImpl) GetByDate(ctx context.Context, date string) ([]model.StrategyAlert, error) {
+func (r AlertRepoImpl) GetByDate(ctx context.Context, date string) ([]dal_model.StrategyAlert, error) {
 	return r.GetTodayAlerts(ctx, date)
 }

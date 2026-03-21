@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"stock/dal/db"
 	"stock/dal/redis"
-	"stock/internal/model"
+	"stock/model/dal_model"
 	"strconv"
 	"time"
 
@@ -28,7 +28,7 @@ func (h *FocusHandler) Get(c *gin.Context) {
 		return
 	}
 
-	var topics []model.Topic
+	var topics []dal_model.Topic
 	for _, id := range topicIDs {
 		topic, err := db.NewTopicRepository().GetByID(ctx, id)
 		if err != nil {

@@ -2,39 +2,39 @@ package mocks
 
 import (
 	"context"
-	"stock/internal/model"
+	"stock/model/dal_model"
 )
 
 type MockStockRepo struct {
-	Stocks map[string]*model.StockBasicInfo
+	Stocks map[string]*dal_model.StockBasicInfo
 	Err    error
 }
 
 func NewMockStockRepo() *MockStockRepo {
 	return &MockStockRepo{
-		Stocks: make(map[string]*model.StockBasicInfo),
+		Stocks: make(map[string]*dal_model.StockBasicInfo),
 	}
 }
 
-func (m *MockStockRepo) GetByTsCode(ctx context.Context, tsCode string) (*model.StockBasicInfo, error) {
+func (m *MockStockRepo) GetByTsCode(ctx context.Context, tsCode string) (*dal_model.StockBasicInfo, error) {
 	if m.Err != nil {
 		return nil, m.Err
 	}
 	return m.Stocks[tsCode], nil
 }
 
-func (m *MockStockRepo) GetActiveStocks(ctx context.Context) ([]model.StockBasicInfo, error) {
+func (m *MockStockRepo) GetActiveStocks(ctx context.Context) ([]dal_model.StockBasicInfo, error) {
 	if m.Err != nil {
 		return nil, m.Err
 	}
-	var stocks []model.StockBasicInfo
+	var stocks []dal_model.StockBasicInfo
 	for _, s := range m.Stocks {
 		stocks = append(stocks, *s)
 	}
 	return stocks, nil
 }
 
-func (m *MockStockRepo) Upsert(ctx context.Context, stock *model.StockBasicInfo) error {
+func (m *MockStockRepo) Upsert(ctx context.Context, stock *dal_model.StockBasicInfo) error {
 	if m.Err != nil {
 		return m.Err
 	}
@@ -42,11 +42,11 @@ func (m *MockStockRepo) Upsert(ctx context.Context, stock *model.StockBasicInfo)
 	return nil
 }
 
-func (m *MockStockRepo) GetByBoardCode(ctx context.Context, boardCode string) ([]model.StockBasicInfo, error) {
+func (m *MockStockRepo) GetByBoardCode(ctx context.Context, boardCode string) ([]dal_model.StockBasicInfo, error) {
 	if m.Err != nil {
 		return nil, m.Err
 	}
-	var stocks []model.StockBasicInfo
+	var stocks []dal_model.StockBasicInfo
 	for _, s := range m.Stocks {
 		if s.BoardCode == boardCode {
 			stocks = append(stocks, *s)
@@ -56,21 +56,21 @@ func (m *MockStockRepo) GetByBoardCode(ctx context.Context, boardCode string) ([
 }
 
 type MockTopicRepo struct {
-	Topics map[int64]*model.Topic
+	Topics map[int64]*dal_model.Topic
 	Err    error
 }
 
 func NewMockTopicRepo() *MockTopicRepo {
 	return &MockTopicRepo{
-		Topics: make(map[int64]*model.Topic),
+		Topics: make(map[int64]*dal_model.Topic),
 	}
 }
 
-func (m *MockTopicRepo) List(ctx context.Context, keyword string, page, pageSize int) ([]model.Topic, int64, error) {
+func (m *MockTopicRepo) List(ctx context.Context, keyword string, page, pageSize int) ([]dal_model.Topic, int64, error) {
 	if m.Err != nil {
 		return nil, 0, m.Err
 	}
-	var topics []model.Topic
+	var topics []dal_model.Topic
 	for _, t := range m.Topics {
 		if keyword == "" || t.Name == keyword {
 			topics = append(topics, *t)
@@ -79,14 +79,14 @@ func (m *MockTopicRepo) List(ctx context.Context, keyword string, page, pageSize
 	return topics, int64(len(topics)), nil
 }
 
-func (m *MockTopicRepo) GetByID(ctx context.Context, id int64) (*model.Topic, error) {
+func (m *MockTopicRepo) GetByID(ctx context.Context, id int64) (*dal_model.Topic, error) {
 	if m.Err != nil {
 		return nil, m.Err
 	}
 	return m.Topics[id], nil
 }
 
-func (m *MockTopicRepo) GetByName(ctx context.Context, name string) (*model.Topic, error) {
+func (m *MockTopicRepo) GetByName(ctx context.Context, name string) (*dal_model.Topic, error) {
 	if m.Err != nil {
 		return nil, m.Err
 	}
@@ -98,12 +98,12 @@ func (m *MockTopicRepo) GetByName(ctx context.Context, name string) (*model.Topi
 	return nil, nil
 }
 
-func (m *MockTopicRepo) Create(ctx context.Context, name, source string) (*model.Topic, error) {
+func (m *MockTopicRepo) Create(ctx context.Context, name, source string) (*dal_model.Topic, error) {
 	if m.Err != nil {
 		return nil, m.Err
 	}
 	id := int64(len(m.Topics) + 1)
-	topic := &model.Topic{
+	topic := &dal_model.Topic{
 		ID:     id,
 		Name:   name,
 		Source: source,
@@ -134,39 +134,39 @@ func (m *MockTopicRepo) Delete(ctx context.Context, id int64) error {
 }
 
 type MockAlertRepo struct {
-	Alerts map[int64]*model.StrategyAlert
+	Alerts map[int64]*dal_model.StrategyAlert
 	Err    error
 }
 
 func NewMockAlertRepo() *MockAlertRepo {
 	return &MockAlertRepo{
-		Alerts: make(map[int64]*model.StrategyAlert),
+		Alerts: make(map[int64]*dal_model.StrategyAlert),
 	}
 }
 
-func (m *MockAlertRepo) GetTodayAlerts(ctx context.Context, date string) ([]model.StrategyAlert, error) {
+func (m *MockAlertRepo) GetTodayAlerts(ctx context.Context, date string) ([]dal_model.StrategyAlert, error) {
 	if m.Err != nil {
 		return nil, m.Err
 	}
-	var alerts []model.StrategyAlert
+	var alerts []dal_model.StrategyAlert
 	for _, a := range m.Alerts {
 		alerts = append(alerts, *a)
 	}
 	return alerts, nil
 }
 
-func (m *MockAlertRepo) GetByDateRange(ctx context.Context, startDate, endDate string, page, pageSize int) ([]model.StrategyAlert, int64, error) {
+func (m *MockAlertRepo) GetByDateRange(ctx context.Context, startDate, endDate string, page, pageSize int) ([]dal_model.StrategyAlert, int64, error) {
 	if m.Err != nil {
 		return nil, 0, m.Err
 	}
-	var alerts []model.StrategyAlert
+	var alerts []dal_model.StrategyAlert
 	for _, a := range m.Alerts {
 		alerts = append(alerts, *a)
 	}
 	return alerts, int64(len(alerts)), nil
 }
 
-func (m *MockAlertRepo) Create(ctx context.Context, alert *model.StrategyAlert) (int64, error) {
+func (m *MockAlertRepo) Create(ctx context.Context, alert *dal_model.StrategyAlert) (int64, error) {
 	if m.Err != nil {
 		return 0, m.Err
 	}
@@ -176,7 +176,7 @@ func (m *MockAlertRepo) Create(ctx context.Context, alert *model.StrategyAlert) 
 	return id, nil
 }
 
-func (m *MockAlertRepo) GetByID(ctx context.Context, id int64) (*model.StrategyAlert, error) {
+func (m *MockAlertRepo) GetByID(ctx context.Context, id int64) (*dal_model.StrategyAlert, error) {
 	if m.Err != nil {
 		return nil, m.Err
 	}
@@ -184,21 +184,21 @@ func (m *MockAlertRepo) GetByID(ctx context.Context, id int64) (*model.StrategyA
 }
 
 type MockPoolRepo struct {
-	Pools []model.DailyStockPool
+	Pools []dal_model.DailyStockPool
 	Err   error
 }
 
 func NewMockPoolRepo() *MockPoolRepo {
 	return &MockPoolRepo{
-		Pools: make([]model.DailyStockPool, 0),
+		Pools: make([]dal_model.DailyStockPool, 0),
 	}
 }
 
-func (m *MockPoolRepo) GetByDate(ctx context.Context, date string, poolType int) ([]model.DailyStockPool, error) {
+func (m *MockPoolRepo) GetByDate(ctx context.Context, date string, poolType int) ([]dal_model.DailyStockPool, error) {
 	if m.Err != nil {
 		return nil, m.Err
 	}
-	var pools []model.DailyStockPool
+	var pools []dal_model.DailyStockPool
 	for _, p := range m.Pools {
 		if p.Date.Format("2006-01-02") == date && (poolType == 0 || int(p.PoolType) == poolType) {
 			pools = append(pools, p)
@@ -207,7 +207,7 @@ func (m *MockPoolRepo) GetByDate(ctx context.Context, date string, poolType int)
 	return pools, nil
 }
 
-func (m *MockPoolRepo) Upsert(ctx context.Context, pool *model.DailyStockPool) error {
+func (m *MockPoolRepo) Upsert(ctx context.Context, pool *dal_model.DailyStockPool) error {
 	if m.Err != nil {
 		return m.Err
 	}
@@ -215,7 +215,7 @@ func (m *MockPoolRepo) Upsert(ctx context.Context, pool *model.DailyStockPool) e
 	return nil
 }
 
-func (m *MockPoolRepo) GetByTsCodeAndDate(ctx context.Context, tsCode, date string, poolType int) (*model.DailyStockPool, error) {
+func (m *MockPoolRepo) GetByTsCodeAndDate(ctx context.Context, tsCode, date string, poolType int) (*dal_model.DailyStockPool, error) {
 	if m.Err != nil {
 		return nil, m.Err
 	}
@@ -236,28 +236,28 @@ func (m *MockPoolRepo) GetTopicStats(ctx context.Context, date string) (map[int6
 }
 
 type MockMappingRepo struct {
-	Mappings map[int64][]model.TopicMapping
+	Mappings map[int64][]dal_model.TopicMapping
 	Err      error
 }
 
 func NewMockMappingRepo() *MockMappingRepo {
 	return &MockMappingRepo{
-		Mappings: make(map[int64][]model.TopicMapping),
+		Mappings: make(map[int64][]dal_model.TopicMapping),
 	}
 }
 
-func (m *MockMappingRepo) GetByTsCode(ctx context.Context, tsCode string) ([]model.TopicMapping, error) {
+func (m *MockMappingRepo) GetByTsCode(ctx context.Context, tsCode string) ([]dal_model.TopicMapping, error) {
 	if m.Err != nil {
 		return nil, m.Err
 	}
-	var result []model.TopicMapping
+	var result []dal_model.TopicMapping
 	for _, mappings := range m.Mappings {
 		result = append(result, mappings...)
 	}
 	return result, nil
 }
 
-func (m *MockMappingRepo) Upsert(ctx context.Context, mapping *model.TopicMapping) error {
+func (m *MockMappingRepo) Upsert(ctx context.Context, mapping *dal_model.TopicMapping) error {
 	if m.Err != nil {
 		return m.Err
 	}
@@ -280,14 +280,14 @@ func (m *MockMappingRepo) Delete(ctx context.Context, tsCode string, topicID int
 	return nil
 }
 
-func (m *MockMappingRepo) GetByTopicID(ctx context.Context, topicID int64) ([]model.TopicMapping, error) {
+func (m *MockMappingRepo) GetByTopicID(ctx context.Context, topicID int64) ([]dal_model.TopicMapping, error) {
 	if m.Err != nil {
 		return nil, m.Err
 	}
 	return m.Mappings[topicID], nil
 }
 
-func (m *MockMappingRepo) GetAllStockTopics(ctx context.Context) (map[int64][]model.TopicMapping, error) {
+func (m *MockMappingRepo) GetAllStockTopics(ctx context.Context) (map[int64][]dal_model.TopicMapping, error) {
 	if m.Err != nil {
 		return nil, m.Err
 	}
@@ -295,28 +295,28 @@ func (m *MockMappingRepo) GetAllStockTopics(ctx context.Context) (map[int64][]mo
 }
 
 type MockBoardRepo struct {
-	Boards map[string]model.BoardRule
+	Boards map[string]dal_model.BoardRule
 	Err    error
 }
 
 func NewMockBoardRepo() *MockBoardRepo {
 	return &MockBoardRepo{
-		Boards: make(map[string]model.BoardRule),
+		Boards: make(map[string]dal_model.BoardRule),
 	}
 }
 
-func (m *MockBoardRepo) GetAll(ctx context.Context) ([]model.BoardRule, error) {
+func (m *MockBoardRepo) GetAll(ctx context.Context) ([]dal_model.BoardRule, error) {
 	if m.Err != nil {
 		return nil, m.Err
 	}
-	var boards []model.BoardRule
+	var boards []dal_model.BoardRule
 	for _, b := range m.Boards {
 		boards = append(boards, b)
 	}
 	return boards, nil
 }
 
-func (m *MockBoardRepo) GetByCode(ctx context.Context, code string) (*model.BoardRule, error) {
+func (m *MockBoardRepo) GetByCode(ctx context.Context, code string) (*dal_model.BoardRule, error) {
 	if m.Err != nil {
 		return nil, m.Err
 	}
@@ -327,7 +327,7 @@ func (m *MockBoardRepo) GetByCode(ctx context.Context, code string) (*model.Boar
 	return &rule, nil
 }
 
-func (m *MockBoardRepo) Upsert(ctx context.Context, rule *model.BoardRule) error {
+func (m *MockBoardRepo) Upsert(ctx context.Context, rule *dal_model.BoardRule) error {
 	if m.Err != nil {
 		return m.Err
 	}
@@ -336,26 +336,26 @@ func (m *MockBoardRepo) Upsert(ctx context.Context, rule *model.BoardRule) error
 }
 
 type MockSynonymRepo struct {
-	Synonyms   map[int64][]model.TopicSynonym
-	SynonymMap map[string]*model.TopicSynonym
+	Synonyms   map[int64][]dal_model.TopicSynonym
+	SynonymMap map[string]*dal_model.TopicSynonym
 	Err        error
 }
 
 func NewMockSynonymRepo() *MockSynonymRepo {
 	return &MockSynonymRepo{
-		Synonyms:   make(map[int64][]model.TopicSynonym),
-		SynonymMap: make(map[string]*model.TopicSynonym),
+		Synonyms:   make(map[int64][]dal_model.TopicSynonym),
+		SynonymMap: make(map[string]*dal_model.TopicSynonym),
 	}
 }
 
-func (m *MockSynonymRepo) GetByTopicID(ctx context.Context, topicID int64) ([]model.TopicSynonym, error) {
+func (m *MockSynonymRepo) GetByTopicID(ctx context.Context, topicID int64) ([]dal_model.TopicSynonym, error) {
 	if m.Err != nil {
 		return nil, m.Err
 	}
 	return m.Synonyms[topicID], nil
 }
 
-func (m *MockSynonymRepo) GetBySynonym(ctx context.Context, synonym string) (*model.TopicSynonym, error) {
+func (m *MockSynonymRepo) GetBySynonym(ctx context.Context, synonym string) (*dal_model.TopicSynonym, error) {
 	if m.Err != nil {
 		return nil, m.Err
 	}
@@ -366,7 +366,7 @@ func (m *MockSynonymRepo) Create(ctx context.Context, topicID int64, synonym, so
 	if m.Err != nil {
 		return m.Err
 	}
-	s := model.TopicSynonym{
+	s := dal_model.TopicSynonym{
 		ID:      int64(len(m.SynonymMap) + 1),
 		TopicID: topicID,
 		Synonym: synonym,
@@ -384,11 +384,11 @@ func (m *MockSynonymRepo) Delete(ctx context.Context, synonymID int64) error {
 	return nil
 }
 
-func (m *MockSynonymRepo) GetAll(ctx context.Context) ([]model.TopicSynonym, error) {
+func (m *MockSynonymRepo) GetAll(ctx context.Context) ([]dal_model.TopicSynonym, error) {
 	if m.Err != nil {
 		return nil, m.Err
 	}
-	var result []model.TopicSynonym
+	var result []dal_model.TopicSynonym
 	for _, syns := range m.Synonyms {
 		result = append(result, syns...)
 	}
@@ -396,17 +396,17 @@ func (m *MockSynonymRepo) GetAll(ctx context.Context) ([]model.TopicSynonym, err
 }
 
 type MockEvidenceRepo struct {
-	Evidences map[int64]*model.ClassificationAuditLog
+	Evidences map[int64]*dal_model.ClassificationAuditLog
 	Err       error
 }
 
 func NewMockEvidenceRepo() *MockEvidenceRepo {
 	return &MockEvidenceRepo{
-		Evidences: make(map[int64]*model.ClassificationAuditLog),
+		Evidences: make(map[int64]*dal_model.ClassificationAuditLog),
 	}
 }
 
-func (m *MockEvidenceRepo) Create(ctx context.Context, evidence *model.ClassificationAuditLog) (int64, error) {
+func (m *MockEvidenceRepo) Create(ctx context.Context, evidence *dal_model.ClassificationAuditLog) (int64, error) {
 	if m.Err != nil {
 		return 0, m.Err
 	}
@@ -416,11 +416,11 @@ func (m *MockEvidenceRepo) Create(ctx context.Context, evidence *model.Classific
 	return id, nil
 }
 
-func (m *MockEvidenceRepo) GetByTsCode(ctx context.Context, tsCode, date string, page, pageSize int) ([]model.ClassificationAuditLog, int64, error) {
+func (m *MockEvidenceRepo) GetByTsCode(ctx context.Context, tsCode, date string, page, pageSize int) ([]dal_model.ClassificationAuditLog, int64, error) {
 	if m.Err != nil {
 		return nil, 0, m.Err
 	}
-	var evs []model.ClassificationAuditLog
+	var evs []dal_model.ClassificationAuditLog
 	for _, e := range m.Evidences {
 		if e.TsCode == tsCode {
 			evs = append(evs, *e)
@@ -429,7 +429,7 @@ func (m *MockEvidenceRepo) GetByTsCode(ctx context.Context, tsCode, date string,
 	return evs, int64(len(evs)), nil
 }
 
-func (m *MockEvidenceRepo) GetByID(ctx context.Context, id int64) (*model.ClassificationAuditLog, error) {
+func (m *MockEvidenceRepo) GetByID(ctx context.Context, id int64) (*dal_model.ClassificationAuditLog, error) {
 	if m.Err != nil {
 		return nil, m.Err
 	}
@@ -447,35 +447,35 @@ func (m *MockEvidenceRepo) UpdateCorrectedTopicID(ctx context.Context, evidenceI
 }
 
 type MockConceptRepo struct {
-	Concepts map[string]*model.TushareConcept
+	Concepts map[string]*dal_model.TushareConcept
 	Err      error
 }
 
 func NewMockConceptRepo() *MockConceptRepo {
 	return &MockConceptRepo{
-		Concepts: make(map[string]*model.TushareConcept),
+		Concepts: make(map[string]*dal_model.TushareConcept),
 	}
 }
 
-func (m *MockConceptRepo) GetAll(ctx context.Context) ([]model.TushareConcept, error) {
+func (m *MockConceptRepo) GetAll(ctx context.Context) ([]dal_model.TushareConcept, error) {
 	if m.Err != nil {
 		return nil, m.Err
 	}
-	var concepts []model.TushareConcept
+	var concepts []dal_model.TushareConcept
 	for _, c := range m.Concepts {
 		concepts = append(concepts, *c)
 	}
 	return concepts, nil
 }
 
-func (m *MockConceptRepo) GetByName(ctx context.Context, name string) (*model.TushareConcept, error) {
+func (m *MockConceptRepo) GetByName(ctx context.Context, name string) (*dal_model.TushareConcept, error) {
 	if m.Err != nil {
 		return nil, m.Err
 	}
 	return m.Concepts[name], nil
 }
 
-func (m *MockConceptRepo) Upsert(ctx context.Context, concept *model.TushareConcept) error {
+func (m *MockConceptRepo) Upsert(ctx context.Context, concept *dal_model.TushareConcept) error {
 	if m.Err != nil {
 		return m.Err
 	}
@@ -484,28 +484,28 @@ func (m *MockConceptRepo) Upsert(ctx context.Context, concept *model.TushareConc
 }
 
 type MockConceptDetailRepo struct {
-	Details map[string][]model.TushareConceptDetail
+	Details map[string][]dal_model.TushareConceptDetail
 	Err     error
 }
 
 func NewMockConceptDetailRepo() *MockConceptDetailRepo {
 	return &MockConceptDetailRepo{
-		Details: make(map[string][]model.TushareConceptDetail),
+		Details: make(map[string][]dal_model.TushareConceptDetail),
 	}
 }
 
-func (m *MockConceptDetailRepo) GetByConceptName(ctx context.Context, conceptName string) ([]model.TushareConceptDetail, error) {
+func (m *MockConceptDetailRepo) GetByConceptName(ctx context.Context, conceptName string) ([]dal_model.TushareConceptDetail, error) {
 	if m.Err != nil {
 		return nil, m.Err
 	}
 	return m.Details[conceptName], nil
 }
 
-func (m *MockConceptDetailRepo) GetByTsCode(ctx context.Context, tsCode string) ([]model.TushareConceptDetail, error) {
+func (m *MockConceptDetailRepo) GetByTsCode(ctx context.Context, tsCode string) ([]dal_model.TushareConceptDetail, error) {
 	if m.Err != nil {
 		return nil, m.Err
 	}
-	var result []model.TushareConceptDetail
+	var result []dal_model.TushareConceptDetail
 	for _, details := range m.Details {
 		for _, d := range details {
 			if d.TsCode == tsCode {
@@ -516,7 +516,7 @@ func (m *MockConceptDetailRepo) GetByTsCode(ctx context.Context, tsCode string) 
 	return result, nil
 }
 
-func (m *MockConceptDetailRepo) Upsert(ctx context.Context, detail *model.TushareConceptDetail) error {
+func (m *MockConceptDetailRepo) Upsert(ctx context.Context, detail *dal_model.TushareConceptDetail) error {
 	if m.Err != nil {
 		return m.Err
 	}
@@ -525,24 +525,24 @@ func (m *MockConceptDetailRepo) Upsert(ctx context.Context, detail *model.Tushar
 }
 
 type MockMarketSnapshotRepo struct {
-	Snapshots map[string]*model.MarketSnapshot
+	Snapshots map[string]*dal_model.MarketSnapshot
 	Err       error
 }
 
 func NewMockMarketSnapshotRepo() *MockMarketSnapshotRepo {
 	return &MockMarketSnapshotRepo{
-		Snapshots: make(map[string]*model.MarketSnapshot),
+		Snapshots: make(map[string]*dal_model.MarketSnapshot),
 	}
 }
 
-func (m *MockMarketSnapshotRepo) GetByDate(ctx context.Context, date string) (*model.MarketSnapshot, error) {
+func (m *MockMarketSnapshotRepo) GetByDate(ctx context.Context, date string) (*dal_model.MarketSnapshot, error) {
 	if m.Err != nil {
 		return nil, m.Err
 	}
 	return m.Snapshots[date], nil
 }
 
-func (m *MockMarketSnapshotRepo) Upsert(ctx context.Context, snapshot *model.MarketSnapshot) error {
+func (m *MockMarketSnapshotRepo) Upsert(ctx context.Context, snapshot *dal_model.MarketSnapshot) error {
 	if m.Err != nil {
 		return m.Err
 	}

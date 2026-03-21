@@ -2,9 +2,9 @@ package db
 
 import (
 	"context"
+	"stock/model/dal_model"
 
 	"gorm.io/gorm/clause"
-	"stock/internal/model"
 )
 
 type ConceptDetailRepoImpl struct{}
@@ -17,7 +17,7 @@ func (r ConceptDetailRepoImpl) Upsert(ctx context.Context, tsCode, conceptName, 
 	return PostgresStockDB(ctx).Clauses(clause.OnConflict{
 		Columns:   []clause.Column{{Name: "ts_code"}, {Name: "concept_name"}},
 		DoNothing: true,
-	}).Create(&model.TushareConceptDetail{
+	}).Create(&dal_model.TushareConceptDetail{
 		TsCode:      tsCode,
 		ConceptName: conceptName,
 		ConceptCode: conceptCode,
@@ -25,8 +25,8 @@ func (r ConceptDetailRepoImpl) Upsert(ctx context.Context, tsCode, conceptName, 
 	}).Error
 }
 
-func (r ConceptDetailRepoImpl) GetByStock(ctx context.Context, tsCode string) ([]model.TushareConceptDetail, error) {
-	var details []model.TushareConceptDetail
+func (r ConceptDetailRepoImpl) GetByStock(ctx context.Context, tsCode string) ([]dal_model.TushareConceptDetail, error) {
+	var details []dal_model.TushareConceptDetail
 	err := PostgresStockDB(ctx).Select("id, ts_code, concept_name, concept_code, source").
 		Where("ts_code = ?", tsCode).Find(&details).Error
 	if err != nil {
@@ -35,8 +35,8 @@ func (r ConceptDetailRepoImpl) GetByStock(ctx context.Context, tsCode string) ([
 	return details, nil
 }
 
-func (r ConceptDetailRepoImpl) GetByConcept(ctx context.Context, conceptName string) ([]model.TushareConceptDetail, error) {
-	var details []model.TushareConceptDetail
+func (r ConceptDetailRepoImpl) GetByConcept(ctx context.Context, conceptName string) ([]dal_model.TushareConceptDetail, error) {
+	var details []dal_model.TushareConceptDetail
 	err := PostgresStockDB(ctx).Select("id, ts_code, concept_name, concept_code, source").
 		Where("concept_name = ?", conceptName).Find(&details).Error
 	if err != nil {
@@ -45,8 +45,8 @@ func (r ConceptDetailRepoImpl) GetByConcept(ctx context.Context, conceptName str
 	return details, nil
 }
 
-func (r ConceptDetailRepoImpl) GetByConceptCode(ctx context.Context, conceptCode string) ([]model.TushareConceptDetail, error) {
-	var details []model.TushareConceptDetail
+func (r ConceptDetailRepoImpl) GetByConceptCode(ctx context.Context, conceptCode string) ([]dal_model.TushareConceptDetail, error) {
+	var details []dal_model.TushareConceptDetail
 	err := PostgresStockDB(ctx).Select("id, ts_code, concept_name, concept_code, source").
 		Where("concept_code = ?", conceptCode).Find(&details).Error
 	if err != nil {

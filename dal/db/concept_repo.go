@@ -2,17 +2,16 @@ package db
 
 import (
 	"context"
-
-	"stock/internal/model"
+	"stock/model/dal_model"
 )
 
 var _ ConceptRepository = (*ConceptRepoImpl)(nil)
 
 type ConceptRepository interface {
 	Upsert(ctx context.Context, conceptName, conceptCode string) error
-	GetAll(ctx context.Context) ([]model.TushareConcept, error)
-	GetByCode(ctx context.Context, conceptCode string) (*model.TushareConcept, error)
-	List(ctx context.Context, keyword string, page, pageSize int) ([]model.TushareConcept, int64, error)
+	GetAll(ctx context.Context) ([]dal_model.TushareConcept, error)
+	GetByCode(ctx context.Context, conceptCode string) (*dal_model.TushareConcept, error)
+	List(ctx context.Context, keyword string, page, pageSize int) ([]dal_model.TushareConcept, int64, error)
 	GetUnmapped(ctx context.Context) ([]string, error)
 }
 
@@ -27,26 +26,26 @@ func (r ConceptRepoImpl) Upsert(ctx context.Context, conceptName, conceptCode st
 	return PostgresStockDB(ctx).Exec(sql, conceptName, conceptCode).Error
 }
 
-func (r ConceptRepoImpl) GetAll(ctx context.Context) ([]model.TushareConcept, error) {
-	var concepts []model.TushareConcept
+func (r ConceptRepoImpl) GetAll(ctx context.Context) ([]dal_model.TushareConcept, error) {
+	var concepts []dal_model.TushareConcept
 	if err := PostgresStockDB(ctx).Find(&concepts).Error; err != nil {
 		return nil, err
 	}
 	return concepts, nil
 }
 
-func (r ConceptRepoImpl) GetByCode(ctx context.Context, conceptCode string) (*model.TushareConcept, error) {
-	var c model.TushareConcept
+func (r ConceptRepoImpl) GetByCode(ctx context.Context, conceptCode string) (*dal_model.TushareConcept, error) {
+	var c dal_model.TushareConcept
 	if err := PostgresStockDB(ctx).Where("concept_code = ?", conceptCode).First(&c).Error; err != nil {
 		return nil, err
 	}
 	return &c, nil
 }
 
-func (r ConceptRepoImpl) List(ctx context.Context, keyword string, page, pageSize int) ([]model.TushareConcept, int64, error) {
-	var concepts []model.TushareConcept
+func (r ConceptRepoImpl) List(ctx context.Context, keyword string, page, pageSize int) ([]dal_model.TushareConcept, int64, error) {
+	var concepts []dal_model.TushareConcept
 	var total int64
-	q := PostgresStockDB(ctx).Model(&model.TushareConcept{})
+	q := PostgresStockDB(ctx).Model(&dal_model.TushareConcept{})
 	if keyword != "" {
 		like := "%" + keyword + "%"
 		q = q.Where("concept_name ILIKE ?", like)

@@ -4,14 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"stock/model/dal_model"
 
 	"github.com/redis/go-redis/v9"
-	"stock/internal/model"
 )
 
 type MappingCacheInterface interface {
-	GetStockTopics(ctx context.Context, tsCode string) ([]model.TopicMapping, error)
-	SetStockTopics(ctx context.Context, tsCode string, mappings []model.TopicMapping) error
+	GetStockTopics(ctx context.Context, tsCode string) ([]dal_model.TopicMapping, error)
+	SetStockTopics(ctx context.Context, tsCode string, mappings []dal_model.TopicMapping) error
 	GetBindStrength(ctx context.Context, tsCode string, topicID int64) (int, error)
 	SetBindStrength(ctx context.Context, tsCode string, topicID int64, count int) error
 	GetAllBindStrength(ctx context.Context, tsCode string) (map[int64]int, error)
@@ -25,7 +25,7 @@ func NewMappingCache() *MappingCacheImpl {
 	return &MappingCacheImpl{}
 }
 
-func (c MappingCacheImpl) GetStockTopics(ctx context.Context, tsCode string) ([]model.TopicMapping, error) {
+func (c MappingCacheImpl) GetStockTopics(ctx context.Context, tsCode string) ([]dal_model.TopicMapping, error) {
 	key := "cache:stock_topics"
 	data, err := RedisClient(ctx).HGet(ctx, key, tsCode).Result()
 	if err == redis.Nil {
@@ -35,14 +35,14 @@ func (c MappingCacheImpl) GetStockTopics(ctx context.Context, tsCode string) ([]
 		return nil, err
 	}
 
-	var mappings []model.TopicMapping
+	var mappings []dal_model.TopicMapping
 	if err := json.Unmarshal([]byte(data), &mappings); err != nil {
 		return nil, err
 	}
 	return mappings, nil
 }
 
-func (c MappingCacheImpl) SetStockTopics(ctx context.Context, tsCode string, mappings []model.TopicMapping) error {
+func (c MappingCacheImpl) SetStockTopics(ctx context.Context, tsCode string, mappings []dal_model.TopicMapping) error {
 	key := "cache:stock_topics"
 	data, err := json.Marshal(mappings)
 	if err != nil {

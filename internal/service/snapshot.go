@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"log"
 	"stock/dal/redis"
+	"stock/model/dal_model"
 	"time"
 
 	"stock/dal/db"
-	"stock/internal/model"
 )
 
 type SnapshotService struct {
@@ -72,7 +72,7 @@ func (s *SnapshotService) TakeSnapshot(ctx context.Context, date string) error {
 			continue
 		}
 
-		record := &model.DailyStockPool{
+		record := &dal_model.DailyStockPool{
 			Date:      t,
 			TsCode:    tsCode,
 			StockName: stock.Name,
@@ -90,7 +90,7 @@ func (s *SnapshotService) TakeSnapshot(ctx context.Context, date string) error {
 			continue
 		}
 
-		record := &model.DailyStockPool{
+		record := &dal_model.DailyStockPool{
 			Date:      t,
 			TsCode:    tsCode,
 			StockName: stock.Name,

@@ -1,4 +1,4 @@
-package model
+package dal_model
 
 import (
 	"encoding/json"

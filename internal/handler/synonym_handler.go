@@ -3,7 +3,7 @@ package handler
 import (
 	"net/http"
 	"stock/dal/db"
-	"stock/internal/model"
+	"stock/model/dal_model"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
@@ -53,7 +53,7 @@ func (h *SynonymHandler) Create(c *gin.Context) {
 		return
 	}
 
-	synonym := model.TopicSynonym{
+	synonym := dal_model.TopicSynonym{
 		TopicID: topicID,
 		Synonym: req.Synonym,
 		Source:  "manual",

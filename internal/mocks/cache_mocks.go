@@ -3,21 +3,21 @@ package mocks
 import (
 	"context"
 	"fmt"
-	"stock/internal/model"
+	"stock/model/dal_model"
 )
 
 type MockQuoteCache struct {
-	Quotes map[string]model.StockQuote
+	Quotes map[string]dal_model.StockQuote
 	Err    error
 }
 
 func NewMockQuoteCache() *MockQuoteCache {
 	return &MockQuoteCache{
-		Quotes: make(map[string]model.StockQuote),
+		Quotes: make(map[string]dal_model.StockQuote),
 	}
 }
 
-func (m *MockQuoteCache) Set(ctx context.Context, quote *model.StockQuote) error {
+func (m *MockQuoteCache) Set(ctx context.Context, quote *dal_model.StockQuote) error {
 	if m.Err != nil {
 		return m.Err
 	}
@@ -25,7 +25,7 @@ func (m *MockQuoteCache) Set(ctx context.Context, quote *model.StockQuote) error
 	return nil
 }
 
-func (m *MockQuoteCache) Get(ctx context.Context, tsCode string) (*model.StockQuote, error) {
+func (m *MockQuoteCache) Get(ctx context.Context, tsCode string) (*dal_model.StockQuote, error) {
 	if m.Err != nil {
 		return nil, m.Err
 	}
@@ -204,19 +204,19 @@ func (m *MockFocusCache) ClearFocusTopics(ctx context.Context, date string) erro
 }
 
 type MockMappingCache struct {
-	StockTopics  map[string][]model.TopicMapping
+	StockTopics  map[string][]dal_model.TopicMapping
 	BindStrength map[string]int
 	Err          error
 }
 
 func NewMockMappingCache() *MockMappingCache {
 	return &MockMappingCache{
-		StockTopics:  make(map[string][]model.TopicMapping),
+		StockTopics:  make(map[string][]dal_model.TopicMapping),
 		BindStrength: make(map[string]int),
 	}
 }
 
-func (m *MockMappingCache) SetStockTopics(ctx context.Context, tsCode string, mappings []model.TopicMapping) error {
+func (m *MockMappingCache) SetStockTopics(ctx context.Context, tsCode string, mappings []dal_model.TopicMapping) error {
 	if m.Err != nil {
 		return m.Err
 	}
@@ -224,7 +224,7 @@ func (m *MockMappingCache) SetStockTopics(ctx context.Context, tsCode string, ma
 	return nil
 }
 
-func (m *MockMappingCache) GetStockTopics(ctx context.Context, tsCode string) ([]model.TopicMapping, error) {
+func (m *MockMappingCache) GetStockTopics(ctx context.Context, tsCode string) ([]dal_model.TopicMapping, error) {
 	if m.Err != nil {
 		return nil, m.Err
 	}

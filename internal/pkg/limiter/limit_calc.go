@@ -1,6 +1,8 @@
 package limiter
 
-import "stock/internal/model"
+import (
+	"stock/model/dal_model"
+)
 
 func CalcLimitUpPrice(preClose float64, limitUpRatio float64) float64 {
 	if preClose <= 0 {
@@ -9,21 +11,21 @@ func CalcLimitUpPrice(preClose float64, limitUpRatio float64) float64 {
 	return float64(int(preClose*(1+limitUpRatio)*100)) / 100
 }
 
-func DetectBoard(symbol string) model.BoardCode {
+func DetectBoard(symbol string) dal_model.BoardCode {
 	switch {
 	case len(symbol) >= 3 && symbol[:3] == "688":
-		return model.BoardSTAR
+		return dal_model.BoardSTAR
 	case len(symbol) >= 3 && (symbol[:3] == "300" || symbol[:3] == "301"):
-		return model.BoardGEM
+		return dal_model.BoardGEM
 	case len(symbol) >= 1 && (symbol[0] == '8' || symbol[0] == '4'):
-		return model.BoardBSE
+		return dal_model.BoardBSE
 	default:
-		return model.BoardMain
+		return dal_model.BoardMain
 	}
 }
 
-func DetectLimitUp(input model.DetectInput, rule *model.BoardRule) model.DetectOutput {
-	output := model.DetectOutput{
+func DetectLimitUp(input dal_model.DetectInput, rule *dal_model.BoardRule) dal_model.DetectOutput {
+	output := dal_model.DetectOutput{
 		Skipped: false,
 	}
 
@@ -48,22 +50,22 @@ func DetectLimitUp(input model.DetectInput, rule *model.BoardRule) model.DetectO
 	currentState := input.PrevState
 
 	if output.IsLimitUp {
-		if currentState == model.LimitStateNone {
+		if currentState == dal_model.LimitStateNone {
 			output.IsFirstLimitUp = true
-			output.CurrentState = model.LimitStateLimitUp
+			output.CurrentState = dal_model.LimitStateLimitUp
 			output.FirstLimitTime = &input.QuoteTime
-		} else if currentState == model.LimitStateLimitUp {
-			output.CurrentState = model.LimitStateLimitUp
-		} else if currentState == model.LimitStateOpened {
-			output.CurrentState = model.LimitStateReSealed
+		} else if currentState == dal_model.LimitStateLimitUp {
+			output.CurrentState = dal_model.LimitStateLimitUp
+		} else if currentState == dal_model.LimitStateOpened {
+			output.CurrentState = dal_model.LimitStateReSealed
 		} else {
-			output.CurrentState = model.LimitStateLimitUp
+			output.CurrentState = dal_model.LimitStateLimitUp
 		}
 	} else {
-		if currentState == model.LimitStateLimitUp || currentState == model.LimitStateReSealed {
-			output.CurrentState = model.LimitStateOpened
+		if currentState == dal_model.LimitStateLimitUp || currentState == dal_model.LimitStateReSealed {
+			output.CurrentState = dal_model.LimitStateOpened
 		} else {
-			output.CurrentState = model.LimitStateNone
+			output.CurrentState = dal_model.LimitStateNone
 		}
 	}
 

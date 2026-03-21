@@ -2,20 +2,20 @@ package db
 
 import (
 	"context"
+	"stock/model/dal_model"
 	"time"
 
 	"gorm.io/gorm/clause"
-	"stock/internal/model"
 )
 
 var _ TopicRepository = (*TopicRepoImpl)(nil)
 
 type TopicRepository interface {
-	GetByID(ctx context.Context, id int64) (*model.Topic, error)
-	GetByName(ctx context.Context, name string) (*model.Topic, error)
-	Upsert(ctx context.Context, topic *model.Topic) error
-	List(ctx context.Context, keyword string, page, pageSize int) ([]model.Topic, int64, error)
-	GetActiveTopics(ctx context.Context) ([]model.Topic, error)
+	GetByID(ctx context.Context, id int64) (*dal_model.Topic, error)
+	GetByName(ctx context.Context, name string) (*dal_model.Topic, error)
+	Upsert(ctx context.Context, topic *dal_model.Topic) error
+	List(ctx context.Context, keyword string, page, pageSize int) ([]dal_model.Topic, int64, error)
+	GetActiveTopics(ctx context.Context) ([]dal_model.Topic, error)
 	GetIDByName(ctx context.Context, name string) (int64, error)
 	Update(ctx context.Context, id int64, name string, isActive bool, priority int) error
 	Delete(ctx context.Context, id int64) error
@@ -28,8 +28,8 @@ func NewTopicRepository() *TopicRepoImpl {
 	return &TopicRepoImpl{}
 }
 
-func (r TopicRepoImpl) GetByID(ctx context.Context, id int64) (*model.Topic, error) {
-	var topic model.Topic
+func (r TopicRepoImpl) GetByID(ctx context.Context, id int64) (*dal_model.Topic, error) {
+	var topic dal_model.Topic
 	err := PostgresStockDB(ctx).Where("id = ?", id).First(&topic).Error
 	if err != nil {
 		return nil, err
@@ -37,8 +37,8 @@ func (r TopicRepoImpl) GetByID(ctx context.Context, id int64) (*model.Topic, err
 	return &topic, nil
 }
 
-func (r TopicRepoImpl) GetByName(ctx context.Context, name string) (*model.Topic, error) {
-	var topic model.Topic
+func (r TopicRepoImpl) GetByName(ctx context.Context, name string) (*dal_model.Topic, error) {
+	var topic dal_model.Topic
 	err := PostgresStockDB(ctx).Where("name = ?", name).First(&topic).Error
 	if err != nil {
 		return nil, err
@@ -46,7 +46,7 @@ func (r TopicRepoImpl) GetByName(ctx context.Context, name string) (*model.Topic
 	return &topic, nil
 }
 
-func (r TopicRepoImpl) Upsert(ctx context.Context, topic *model.Topic) error {
+func (r TopicRepoImpl) Upsert(ctx context.Context, topic *dal_model.Topic) error {
 	return PostgresStockDB(ctx).Clauses(clause.OnConflict{
 		Columns: []clause.Column{{Name: "name"}},
 		DoUpdates: clause.AssignmentColumns([]string{
@@ -56,11 +56,11 @@ func (r TopicRepoImpl) Upsert(ctx context.Context, topic *model.Topic) error {
 	}).Create(topic).Error
 }
 
-func (r TopicRepoImpl) List(ctx context.Context, keyword string, page, pageSize int) ([]model.Topic, int64, error) {
+func (r TopicRepoImpl) List(ctx context.Context, keyword string, page, pageSize int) ([]dal_model.Topic, int64, error) {
 	offset := (page - 1) * pageSize
 
 	var total int64
-	query := PostgresStockDB(ctx).Model(&model.Topic{})
+	query := PostgresStockDB(ctx).Model(&dal_model.Topic{})
 	if keyword != "" {
 		query = query.Where("name LIKE ?", "%"+keyword+"%")
 	}
@@ -68,7 +68,7 @@ func (r TopicRepoImpl) List(ctx context.Context, keyword string, page, pageSize 
 		return nil, 0, err
 	}
 
-	var topics []model.Topic
+	var topics []dal_model.Topic
 	err := PostgresStockDB(ctx).
 		Where("? = '' OR name LIKE ?", keyword, "%"+keyword+"%").
 		Order("priority DESC, id ASC").
@@ -80,8 +80,8 @@ func (r TopicRepoImpl) List(ctx context.Context, keyword string, page, pageSize 
 	return topics, total, nil
 }
 
-func (r TopicRepoImpl) GetActiveTopics(ctx context.Context) ([]model.Topic, error) {
-	var topics []model.Topic
+func (r TopicRepoImpl) GetActiveTopics(ctx context.Context) ([]dal_model.Topic, error) {
+	var topics []dal_model.Topic
 	err := PostgresStockDB(ctx).Where("is_active = ?", true).Order("priority DESC").Find(&topics).Error
 	if err != nil {
 		return nil, err
@@ -91,12 +91,12 @@ func (r TopicRepoImpl) GetActiveTopics(ctx context.Context) ([]model.Topic, erro
 
 func (r TopicRepoImpl) GetIDByName(ctx context.Context, name string) (int64, error) {
 	var id int64
-	err := PostgresStockDB(ctx).Model(&model.Topic{}).Select("id").Where("name = ?", name).Scan(&id).Error
+	err := PostgresStockDB(ctx).Model(&dal_model.Topic{}).Select("id").Where("name = ?", name).Scan(&id).Error
 	return id, err
 }
 
 func (r TopicRepoImpl) Update(ctx context.Context, id int64, name string, isActive bool, priority int) error {
-	return PostgresStockDB(ctx).Model(&model.Topic{}).Where("id = ?", id).Updates(map[string]interface{}{
+	return PostgresStockDB(ctx).Model(&dal_model.Topic{}).Where("id = ?", id).Updates(map[string]interface{}{
 		"name":       name,
 		"is_active":  isActive,
 		"priority":   priority,
@@ -105,15 +105,15 @@ func (r TopicRepoImpl) Update(ctx context.Context, id int64, name string, isActi
 }
 
 func (r TopicRepoImpl) Delete(ctx context.Context, id int64) error {
-	return PostgresStockDB(ctx).Model(&model.Topic{}).Where("id = ?", id).Update("is_active", false).Error
+	return PostgresStockDB(ctx).Model(&dal_model.Topic{}).Where("id = ?", id).Update("is_active", false).Error
 }
 
 func (r TopicRepoImpl) Merge(ctx context.Context, sourceID, targetID int64) error {
-	if err := PostgresStockDB(ctx).Model(&model.StockTopicRelation{}).Where("topic_id = ?", sourceID).Update("topic_id", targetID).Error; err != nil {
+	if err := PostgresStockDB(ctx).Model(&dal_model.StockTopicRelation{}).Where("topic_id = ?", sourceID).Update("topic_id", targetID).Error; err != nil {
 		return err
 	}
-	if err := PostgresStockDB(ctx).Model(&model.TopicSynonym{}).Where("topic_id = ?", sourceID).Update("topic_id", targetID).Error; err != nil {
+	if err := PostgresStockDB(ctx).Model(&dal_model.TopicSynonym{}).Where("topic_id = ?", sourceID).Update("topic_id", targetID).Error; err != nil {
 		return err
 	}
-	return PostgresStockDB(ctx).Model(&model.Topic{}).Where("id = ?", sourceID).Update("is_active", false).Error
+	return PostgresStockDB(ctx).Model(&dal_model.Topic{}).Where("id = ?", sourceID).Update("is_active", false).Error
 }

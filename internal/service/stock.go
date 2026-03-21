@@ -4,12 +4,12 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"stock/model/dal_model"
 	"time"
 
 	"stock/config"
 	"stock/dal/db"
 	"stock/internal/external/tushare"
-	"stock/internal/model"
 	"stock/internal/pkg/limiter"
 )
 
@@ -41,7 +41,7 @@ func (s *StockService) SyncStockBasic(ctx context.Context) error {
 		boardCode := s.detectBoard(stock.Symbol)
 		industry := stock.Industry
 		listDate, _ := time.Parse("2006-01-02", stock.ListDate)
-		bs := &model.StockBasicInfo{
+		bs := &dal_model.StockBasicInfo{
 			TsCode:    stock.TsCode,
 			Symbol:    stock.Symbol,
 			Name:      stock.Name,
@@ -63,26 +63,26 @@ func (s *StockService) detectBoard(symbol string) string {
 	return string(limiter.DetectBoard(symbol))
 }
 
-func (s *StockService) GetStock(ctx context.Context, tsCode string) (*model.StockBasicInfo, error) {
+func (s *StockService) GetStock(ctx context.Context, tsCode string) (*dal_model.StockBasicInfo, error) {
 	return db.NewStockRepository().GetByTsCode(ctx, tsCode)
 }
 
-func (s *StockService) GetActiveStocks(ctx context.Context) ([]model.StockBasicInfo, error) {
+func (s *StockService) GetActiveStocks(ctx context.Context) ([]dal_model.StockBasicInfo, error) {
 	return db.NewStockRepository().GetActiveStocks(ctx)
 }
 
-func (s *StockService) GetStocksByBoard(ctx context.Context, boardCode string) ([]model.StockBasicInfo, error) {
+func (s *StockService) GetStocksByBoard(ctx context.Context, boardCode string) ([]dal_model.StockBasicInfo, error) {
 	return db.NewStockRepository().GetByBoardCode(ctx, boardCode)
 }
 
-func (s *StockService) LoadBoardRules(ctx context.Context) (map[model.BoardCode]*model.BoardRule, error) {
+func (s *StockService) LoadBoardRules(ctx context.Context) (map[dal_model.BoardCode]*dal_model.BoardRule, error) {
 	boardRepo := db.NewBoardRepository()
 	boards, err := boardRepo.GetAll(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("get all boards: %w", err)
 	}
 
-	result := make(map[model.BoardCode]*model.BoardRule)
+	result := make(map[dal_model.BoardCode]*dal_model.BoardRule)
 	for i := range boards {
 		result[boards[i].BoardCode] = &boards[i]
 	}
