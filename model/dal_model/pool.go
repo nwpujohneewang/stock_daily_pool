@@ -27,6 +27,8 @@ type DailyStockPool struct {
 	FirstLimitTime *string         `gorm:"column:first_limit_time" json:"first_limit_time,omitempty"`
 	BoardCode      *string         `gorm:"column:board_code"       json:"board_code,omitempty"`
 	TopicIDs       json.RawMessage `gorm:"column:topic_ids"         json:"topic_ids,omitempty"`
+	Vol            *float64        `gorm:"column:vol"               json:"vol,omitempty"`
+	Amount         *float64        `gorm:"column:amount"           json:"amount,omitempty"`
 	SnapshotTime   *time.Time      `gorm:"column:snapshot_time"    json:"snapshot_time,omitempty"`
 	CreatedAt      time.Time       `gorm:"column:created_at"       json:"created_at"`
 }

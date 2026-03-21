@@ -38,7 +38,8 @@ func (r PoolRepoImpl) Upsert(ctx context.Context, pool *dal_model.DailyStockPool
 		Columns: []clause.Column{{Name: "date"}, {Name: "ts_code"}, {Name: "pool_type"}},
 		DoUpdates: clause.AssignmentColumns([]string{
 			"stock_name", "change_pct", "current_price", "pre_close",
-			"limit_up_price", "first_limit_time", "board_code", "topic_ids", "snapshot_time",
+			"limit_up_price", "first_limit_time", "board_code", "topic_ids",
+			"vol", "amount", "snapshot_time",
 		}),
 	}).Create(pool).Error
 }

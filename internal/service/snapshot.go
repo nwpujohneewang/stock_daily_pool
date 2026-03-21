@@ -12,12 +12,14 @@ import (
 )
 
 type SnapshotService struct {
-	logger *log.Logger
+	logger     *log.Logger
+	quoteCache redis.QuoteCacheInterface
 }
 
 func NewSnapshotService() *SnapshotService {
 	return &SnapshotService{
-		logger: log.Default(),
+		logger:     log.Default(),
+		quoteCache: redis.NewQuoteCache(),
 	}
 }
 
@@ -72,11 +74,20 @@ func (s *SnapshotService) TakeSnapshot(ctx context.Context, date string) error {
 			continue
 		}
 
+		quote, _ := s.quoteCache.Get(ctx, tsCode)
 		record := &dal_model.DailyStockPool{
 			Date:      t,
 			TsCode:    tsCode,
 			StockName: stock.Name,
 			PoolType:  1,
+		}
+		if quote != nil {
+			record.CurrentPrice = &quote.Price
+			record.ChangePct = &quote.PctChg
+			record.PreClose = &quote.PreClose
+			vol := float64(quote.Vol)
+			record.Vol = &vol
+			record.Amount = &quote.Amount
 		}
 		if err := poolRepo.UpsertSnapshot(ctx, record); err != nil {
 			s.logger.Printf("upsert limit up snapshot %s failed: %v", tsCode, err)
@@ -90,11 +101,20 @@ func (s *SnapshotService) TakeSnapshot(ctx context.Context, date string) error {
 			continue
 		}
 
+		quote, _ := s.quoteCache.Get(ctx, tsCode)
 		record := &dal_model.DailyStockPool{
 			Date:      t,
 			TsCode:    tsCode,
 			StockName: stock.Name,
 			PoolType:  2,
+		}
+		if quote != nil {
+			record.CurrentPrice = &quote.Price
+			record.ChangePct = &quote.PctChg
+			record.PreClose = &quote.PreClose
+			vol := float64(quote.Vol)
+			record.Vol = &vol
+			record.Amount = &quote.Amount
 		}
 		if err := poolRepo.UpsertSnapshot(ctx, record); err != nil {
 			s.logger.Printf("upsert above5 snapshot %s failed: %v", tsCode, err)
