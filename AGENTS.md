@@ -7015,7 +7015,7 @@ func (c *Client) FetchFieldData(ctx context.Context, date string) ([]FieldData, 
         return json.NewDecoder(resp.Body).Decode(&result)
     })
     return result, err
-}
+}c
 ```
 
 ---

@@ -2,18 +2,16 @@ package service
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log"
+	"stock/config"
+	"stock/dal/db"
 	"stock/dal/redis"
+	"stock/internal/pkg/limiter"
+	"stock/internal/pkg/shard"
 	"stock/model/dal_model"
 	"sync"
 	"time"
-
-	"stock/config"
-	"stock/dal/db"
-	"stock/internal/pkg/limiter"
-	"stock/internal/pkg/shard"
 )
 
 type MonitorService struct {
@@ -153,7 +151,7 @@ func (s *MonitorService) processShard(ctx context.Context, date string, batch sh
 func (s *MonitorService) triggerClassifyAndAlert(ctx context.Context, date, tsCode, stockName string, quote *dal_model.StockQuote, output dal_model.DetectOutput) {
 	go func() {
 		classifyCtx := context.Background()
-		topics, err := s.classifySvc.ClassifyStock(classifyCtx, tsCode)
+		topics, err := s.classifySvc.ClassifyStock(classifyCtx, tsCode, date, quote.UpdateTime)
 		if err != nil {
 			s.logger.Printf("classify stock %s: %v", tsCode, err)
 			return
@@ -238,102 +236,4 @@ func (s *MonitorService) isTradingTime(t time.Time) bool {
 	start := 9*60 + 25
 	end := 15*60 + 1
 	return total >= start && total <= end
-}
-
-type ClassifyService struct {
-	logger *log.Logger
-}
-
-func NewClassifyService() *ClassifyService {
-	return &ClassifyService{
-		logger: log.Default(),
-	}
-}
-
-func (s *ClassifyService) ClassifyStock(ctx context.Context, tsCode string) ([]dal_model.TopicMapping, error) {
-	date := time.Now().Format("2006-01-02")
-
-	mappingCache := redis.NewMappingCache()
-	mappings, err := mappingCache.GetStockTopics(ctx, tsCode)
-	if err != nil {
-		return nil, err
-	}
-
-	if mappings != nil && len(mappings) > 0 {
-		for _, m := range mappings {
-			if m.Source == "manual" {
-				s.saveEvidence(ctx, date, tsCode, m.TopicID, "L1_REDIS", "MANUAL", mappings, "", 1.0)
-				return []dal_model.TopicMapping{m}, nil
-			}
-		}
-		s.saveEvidence(ctx, date, tsCode, mappings[0].TopicID, "L1_REDIS", "JIUYAN_ATTR", mappings, "", 0.8)
-		return mappings, nil
-	}
-
-	mappingRepo := db.NewMappingRepository()
-	pgMappings, err := mappingRepo.GetByTsCode(ctx, tsCode)
-	if err != nil {
-		return nil, err
-	}
-
-	if len(pgMappings) > 0 {
-		topicRepo := db.NewTopicRepository()
-		result := make([]dal_model.TopicMapping, len(pgMappings))
-		for i, m := range pgMappings {
-			topic, _ := topicRepo.GetByID(ctx, m.TopicID)
-			topicName := ""
-			if topic != nil {
-				topicName = topic.Name
-			}
-			result[i] = dal_model.TopicMapping{
-				TopicID:      m.TopicID,
-				TopicName:    topicName,
-				Source:       m.Source,
-				HitCount:     m.HitCount,
-				LastSeenDate: m.LastSeenDate.Format("2006-01-02"),
-			}
-		}
-		mappingCache.SetStockTopics(ctx, tsCode, result)
-		s.saveEvidence(ctx, date, tsCode, pgMappings[0].TopicID, "L2_PG_JIUYAN", "JIUYAN_ATTR", result, "", 0.8)
-		return result, nil
-	}
-
-	conceptCache := redis.NewConceptCache()
-	concepts, err := conceptCache.GetStockConcepts(ctx, tsCode)
-	if err != nil || concepts == nil {
-		s.saveEvidence(ctx, date, tsCode, 0, "L3_PG_CONCEPT", "CONCEPT_ATTR", nil, "no concepts found", 0.0)
-		return nil, nil
-	}
-
-	s.saveEvidence(ctx, date, tsCode, 0, "L3_PG_CONCEPT", "CONCEPT_ATTR", nil, "concepts found but no mapping", 0.0)
-	return nil, nil
-}
-
-func (s *ClassifyService) saveEvidence(ctx context.Context, date, tsCode string, topicID int64, layer, strategy string, candidates []dal_model.TopicMapping, evidenceText string, confidence float64) {
-	evidenceRepo := db.NewEvidenceRepository()
-	if evidenceRepo == nil {
-		return
-	}
-	candidateScores, _ := json.Marshal(candidates)
-	parsedDate, _ := time.Parse("2006-01-02", date)
-	e := dal_model.ClassificationAuditLog{
-		Date:            parsedDate,
-		TsCode:          tsCode,
-		TopicID:         &topicID,
-		ClassifyLayer:   layer,
-		Strategy:        strategy,
-		CandidateScores: candidateScores,
-		EvidenceText:    &evidenceText,
-		Confidence:      &confidence,
-	}
-	evidenceRepo.Create(ctx, e)
-}
-
-func (s *ClassifyService) NormalizeTopicName(ctx context.Context, rawName string) (int64, string, bool, error) {
-	topicRepo := db.NewTopicRepository()
-	topic, err := topicRepo.GetByName(ctx, rawName)
-	if err == nil && topic != nil {
-		return topic.ID, topic.Name, false, nil
-	}
-	return 0, "", true, nil
 }

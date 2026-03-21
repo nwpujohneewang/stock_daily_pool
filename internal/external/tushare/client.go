@@ -341,6 +341,92 @@ func (c *Client) ConceptDetail(ctx context.Context, conceptID string) ([]Concept
 	return results, nil
 }
 
+func (c *Client) Daily(ctx context.Context, tradeDate string, tsCodes []string) ([]QuoteItem, error) {
+	if tradeDate == "" {
+		return nil, fmt.Errorf("trade_date is required")
+	}
+	if len(tsCodes) == 0 {
+		return nil, fmt.Errorf("ts_codes is empty")
+	}
+
+	var allQuotes []QuoteItem
+	for _, batch := range splitCodes(tsCodes, 50) {
+		req := &TushareRequest{
+			APIName: "daily",
+			Params: map[string]interface{}{
+				"ts_code":    strings.Join(batch, ","),
+				"trade_date": tradeDate,
+			},
+			Fields: "ts_code,trade_date,open,high,low,close,pre_close,change,pct_chg,vol,amount",
+		}
+
+		resp, err := c.doRequest(ctx, req)
+		if err != nil {
+			return allQuotes, err
+		}
+
+		if resp.Data == nil {
+			continue
+		}
+
+		for _, item := range resp.Data.Items {
+			if len(item) < 11 {
+				continue
+			}
+			allQuotes = append(allQuotes, QuoteItem{
+				TsCode:   toString(item[0]),
+				PreClose: toFloat64(item[6]),
+				Price:    toFloat64(item[5]),
+				PctChg:   toFloat64(item[8]),
+				Vol:      toInt64(item[9]),
+				Amount:   toFloat64(item[10]),
+			})
+		}
+	}
+
+	return allQuotes, nil
+}
+
+func (c *Client) DailyAll(ctx context.Context, tradeDate string) ([]*QuoteItem, error) {
+	if tradeDate == "" {
+		return nil, fmt.Errorf("trade_date is required")
+	}
+
+	req := &TushareRequest{
+		APIName: "daily",
+		Params: map[string]interface{}{
+			"trade_date": tradeDate,
+		},
+		Fields: "ts_code,trade_date,open,high,low,close,pre_close,change,pct_chg,vol,amount",
+	}
+
+	resp, err := c.doRequest(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+
+	if resp.Data == nil {
+		return nil, nil
+	}
+
+	var results []*QuoteItem
+	for _, item := range resp.Data.Items {
+		if len(item) < 11 {
+			continue
+		}
+		results = append(results, &QuoteItem{
+			TsCode:   toString(item[0]),
+			PreClose: toFloat64(item[6]),
+			Price:    toFloat64(item[5]),
+			PctChg:   toFloat64(item[8]),
+			Vol:      toInt64(item[9]),
+			Amount:   toFloat64(item[10]),
+		})
+	}
+
+	return results, nil
+}
+
 func splitCodes(codes []string, size int) [][]string {
 	var result [][]string
 	for i := 0; i < len(codes); i += size {

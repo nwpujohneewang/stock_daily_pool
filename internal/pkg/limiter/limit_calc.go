@@ -17,7 +17,7 @@ func DetectBoard(symbol string) dal_model.BoardCode {
 		return dal_model.BoardSTAR
 	case len(symbol) >= 3 && (symbol[:3] == "300" || symbol[:3] == "301"):
 		return dal_model.BoardGEM
-	case len(symbol) >= 1 && (symbol[0] == '8' || symbol[0] == '4'):
+	case len(symbol) >= 1 && (symbol[0] == '8' || symbol[0] == '4' || symbol[0] == '9'):
 		return dal_model.BoardBSE
 	default:
 		return dal_model.BoardMain

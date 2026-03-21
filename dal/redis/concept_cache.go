@@ -9,6 +9,7 @@ import (
 
 type ConceptCacheInterface interface {
 	GetStockConcepts(ctx context.Context, tsCode string) ([]string, error)
+	GetStockConceptsBatch(ctx context.Context, tsCodes []string) (map[string][]string, error)
 	SetStockConcepts(ctx context.Context, tsCode string, concepts []string) error
 	GetConceptToTopics(ctx context.Context, conceptName string) ([]int64, error)
 	SetConceptToTopics(ctx context.Context, conceptName string, topicIDs []int64) error
@@ -37,6 +38,32 @@ func (c ConceptCacheImpl) GetStockConcepts(ctx context.Context, tsCode string) (
 		return nil, err
 	}
 	return concepts, nil
+}
+
+func (c ConceptCacheImpl) GetStockConceptsBatch(ctx context.Context, tsCodes []string) (map[string][]string, error) {
+	if len(tsCodes) == 0 {
+		return nil, nil
+	}
+	key := "cache:stock_concepts"
+	pipe := RedisClient(ctx).Pipeline()
+	cmds := make([]*redis.StringCmd, len(tsCodes))
+	for i, tc := range tsCodes {
+		cmds[i] = pipe.HGet(ctx, key, tc)
+	}
+	pipe.Exec(ctx)
+
+	result := make(map[string][]string, len(tsCodes))
+	for i, tc := range tsCodes {
+		data, err := cmds[i].Result()
+		if err != nil || data == "" {
+			continue
+		}
+		var concepts []string
+		if err := json.Unmarshal([]byte(data), &concepts); err == nil {
+			result[tc] = concepts
+		}
+	}
+	return result, nil
 }
 
 func (c ConceptCacheImpl) SetStockConcepts(ctx context.Context, tsCode string, concepts []string) error {

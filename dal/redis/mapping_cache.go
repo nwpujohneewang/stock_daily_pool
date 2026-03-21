@@ -11,6 +11,7 @@ import (
 
 type MappingCacheInterface interface {
 	GetStockTopics(ctx context.Context, tsCode string) ([]dal_model.TopicMapping, error)
+	GetStockTopicsBatch(ctx context.Context, tsCodes []string) (map[string][]dal_model.TopicMapping, error)
 	SetStockTopics(ctx context.Context, tsCode string, mappings []dal_model.TopicMapping) error
 	GetBindStrength(ctx context.Context, tsCode string, topicID int64) (int, error)
 	SetBindStrength(ctx context.Context, tsCode string, topicID int64, count int) error
@@ -40,6 +41,32 @@ func (c MappingCacheImpl) GetStockTopics(ctx context.Context, tsCode string) ([]
 		return nil, err
 	}
 	return mappings, nil
+}
+
+func (c MappingCacheImpl) GetStockTopicsBatch(ctx context.Context, tsCodes []string) (map[string][]dal_model.TopicMapping, error) {
+	if len(tsCodes) == 0 {
+		return nil, nil
+	}
+	key := "cache:stock_topics"
+	pipe := RedisClient(ctx).Pipeline()
+	cmds := make([]*redis.StringCmd, len(tsCodes))
+	for i, tc := range tsCodes {
+		cmds[i] = pipe.HGet(ctx, key, tc)
+	}
+	pipe.Exec(ctx)
+
+	result := make(map[string][]dal_model.TopicMapping, len(tsCodes))
+	for i, tc := range tsCodes {
+		data, err := cmds[i].Result()
+		if err != nil || data == "" {
+			continue
+		}
+		var mappings []dal_model.TopicMapping
+		if err := json.Unmarshal([]byte(data), &mappings); err == nil {
+			result[tc] = mappings
+		}
+	}
+	return result, nil
 }
 
 func (c MappingCacheImpl) SetStockTopics(ctx context.Context, tsCode string, mappings []dal_model.TopicMapping) error {

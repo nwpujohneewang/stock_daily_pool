@@ -12,6 +12,7 @@ var _ StockTopicRelationRepository = (*StockTopicRelationRepoImpl)(nil)
 
 type StockTopicRelationRepository interface {
 	GetByTsCode(ctx context.Context, tsCode string) ([]dal_model.StockTopicRelation, error)
+	GetByTsCodeBatch(ctx context.Context, tsCodes []string) (map[string][]dal_model.StockTopicRelation, error)
 	Upsert(ctx context.Context, m *dal_model.StockTopicRelation) error
 	UpsertBatch(ctx context.Context, mappings []dal_model.StockTopicRelation) error
 	GetTopicMappings(ctx context.Context, topicID int64) ([]dal_model.StockTopicRelation, error)
@@ -29,6 +30,22 @@ func (r StockTopicRelationRepoImpl) GetByTsCode(ctx context.Context, tsCode stri
 	var ms []dal_model.StockTopicRelation
 	err := PostgresStockDB(ctx).Where("ts_code = ?", tsCode).Find(&ms).Error
 	return ms, err
+}
+
+func (r StockTopicRelationRepoImpl) GetByTsCodeBatch(ctx context.Context, tsCodes []string) (map[string][]dal_model.StockTopicRelation, error) {
+	if len(tsCodes) == 0 {
+		return nil, nil
+	}
+	var ms []dal_model.StockTopicRelation
+	err := PostgresStockDB(ctx).Where("ts_code IN ?", tsCodes).Find(&ms).Error
+	if err != nil {
+		return nil, err
+	}
+	result := make(map[string][]dal_model.StockTopicRelation, len(tsCodes))
+	for _, m := range ms {
+		result[m.TsCode] = append(result[m.TsCode], m)
+	}
+	return result, nil
 }
 
 func (r StockTopicRelationRepoImpl) Upsert(ctx context.Context, m *dal_model.StockTopicRelation) error {

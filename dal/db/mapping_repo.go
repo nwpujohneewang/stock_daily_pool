@@ -11,6 +11,7 @@ var _ MappingRepository = (*MappingRepoImpl)(nil)
 
 type MappingRepository interface {
 	GetByTsCode(ctx context.Context, tsCode string) ([]dal_model.StockTopicRelation, error)
+	GetByTsCodeBatch(ctx context.Context, tsCodes []string) (map[string][]dal_model.StockTopicRelation, error)
 	Upsert(ctx context.Context, mapping *dal_model.StockTopicRelation) error
 	GetTopicMappings(ctx context.Context, topicID int64) ([]dal_model.StockTopicRelation, error)
 	Delete(ctx context.Context, tsCode string, topicID int64) error
@@ -32,6 +33,22 @@ func (r MappingRepoImpl) GetByTsCode(ctx context.Context, tsCode string) ([]dal_
 		return nil, err
 	}
 	return mappings, nil
+}
+
+func (r MappingRepoImpl) GetByTsCodeBatch(ctx context.Context, tsCodes []string) (map[string][]dal_model.StockTopicRelation, error) {
+	if len(tsCodes) == 0 {
+		return nil, nil
+	}
+	var mappings []dal_model.StockTopicRelation
+	err := PostgresStockDB(ctx).Where("ts_code IN ?", tsCodes).Find(&mappings).Error
+	if err != nil {
+		return nil, err
+	}
+	result := make(map[string][]dal_model.StockTopicRelation, len(tsCodes))
+	for _, m := range mappings {
+		result[m.TsCode] = append(result[m.TsCode], m)
+	}
+	return result, nil
 }
 
 func (r MappingRepoImpl) Upsert(ctx context.Context, mapping *dal_model.StockTopicRelation) error {

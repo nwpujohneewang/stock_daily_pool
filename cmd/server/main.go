@@ -128,6 +128,7 @@ func setupRouter(cfg *config.AppConfig, h *handler.Handlers) *gin.Engine {
 		{
 			pool.GET("/limit-up", h.PoolHandler.GetLimitUp)
 			pool.GET("/above5", h.PoolHandler.GetAbove5)
+			pool.POST("/reclassify", h.PoolHandler.ReclassifyByDate)
 		}
 
 		topics := api.Group("/topics")
