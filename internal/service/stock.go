@@ -7,7 +7,6 @@ import (
 	"stock/model/dal_model"
 	"time"
 
-	"stock/config"
 	"stock/dal/db"
 	"stock/internal/external/tushare"
 	"stock/internal/pkg/limiter"
@@ -15,47 +14,63 @@ import (
 
 type StockService struct {
 	tushareClient *tushare.Client
-	cfg           *config.TushareConfig
 	logger        *log.Logger
 }
 
-func NewStockService(
-	tushareClient *tushare.Client,
-	cfg *config.TushareConfig,
-) *StockService {
+func NewStockService(tushareClient *tushare.Client) *StockService {
 	return &StockService{
 		tushareClient: tushareClient,
-		cfg:           cfg,
 		logger:        log.Default(),
 	}
 }
 
 func (s *StockService) SyncStockBasic(ctx context.Context) error {
-	stocks, err := s.tushareClient.StockBasic(ctx)
+	tushareStocks, err := s.tushareClient.StockBasic(ctx)
 	if err != nil {
 		return fmt.Errorf("fetch stock basic: %w", err)
 	}
 
+	stMap, err := s.tushareClient.StockST(ctx)
+	if err != nil {
+		s.logger.Printf("fetch stock_st failed: %v, proceeding without ST info", err)
+		stMap = make(map[string]bool)
+	}
+
+	s.logger.Printf("共获取 %d 只股票，ST 股票 %d 只\n", len(tushareStocks), len(stMap))
+
 	stockRepo := db.NewStockRepository()
-	for _, stock := range stocks {
+	records := make([]dal_model.StockBasicInfo, 0, len(tushareStocks))
+	for _, stock := range tushareStocks {
 		boardCode := s.detectBoard(stock.Symbol)
 		industry := stock.Industry
 		listDate, _ := time.Parse("2006-01-02", stock.ListDate)
-		bs := &dal_model.StockBasicInfo{
+		records = append(records, dal_model.StockBasicInfo{
 			TsCode:    stock.TsCode,
 			Symbol:    stock.Symbol,
 			Name:      stock.Name,
 			Exchange:  stock.Exchange,
 			BoardCode: boardCode,
 			Industry:  &industry,
-			IsST:      stock.IsST,
+			IsST:      stMap[stock.TsCode],
 			ListDate:  &listDate,
 			Status:    1,
+		})
+	}
+
+	if err = stockRepo.UpsertBatch(ctx, records); err != nil {
+		return fmt.Errorf("upsert batch: %w", err)
+	}
+
+	if len(stMap) > 0 {
+		stCodes := make([]string, 0, len(stMap))
+		for tsCode := range stMap {
+			stCodes = append(stCodes, tsCode)
 		}
-		if err := stockRepo.Upsert(ctx, bs); err != nil {
-			s.logger.Printf("upsert stock %s failed: %v", stock.TsCode, err)
+		if err = stockRepo.SetSTBatch(ctx, stCodes, true); err != nil {
+			s.logger.Printf("set ST batch failed: %v", err)
 		}
 	}
+
 	return nil
 }
 

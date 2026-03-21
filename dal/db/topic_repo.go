@@ -13,6 +13,7 @@ var _ TopicRepository = (*TopicRepoImpl)(nil)
 type TopicRepository interface {
 	GetByID(ctx context.Context, id int64) (*dal_model.Topic, error)
 	GetByName(ctx context.Context, name string) (*dal_model.Topic, error)
+	GetByNames(ctx context.Context, names []string) ([]dal_model.Topic, error)
 	Upsert(ctx context.Context, topic *dal_model.Topic) error
 	List(ctx context.Context, keyword string, page, pageSize int) ([]dal_model.Topic, int64, error)
 	GetActiveTopics(ctx context.Context) ([]dal_model.Topic, error)
@@ -44,6 +45,15 @@ func (r TopicRepoImpl) GetByName(ctx context.Context, name string) (*dal_model.T
 		return nil, err
 	}
 	return &topic, nil
+}
+
+func (r TopicRepoImpl) GetByNames(ctx context.Context, names []string) ([]dal_model.Topic, error) {
+	if len(names) == 0 {
+		return nil, nil
+	}
+	var topics []dal_model.Topic
+	err := PostgresStockDB(ctx).Where("name IN ?", names).Find(&topics).Error
+	return topics, err
 }
 
 func (r TopicRepoImpl) Upsert(ctx context.Context, topic *dal_model.Topic) error {

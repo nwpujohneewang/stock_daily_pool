@@ -189,6 +189,34 @@ func (c *Client) StockBasic(ctx context.Context) ([]StockBasicItem, error) {
 	return results, nil
 }
 
+// StockST 返回当前处于 ST（包括*S、ST、SST、*ST 等特殊处理状态的股票
+func (c *Client) StockST(ctx context.Context) (map[string]bool, error) {
+	req := &TushareRequest{
+		APIName: "stock_st",
+		Params:  map[string]interface{}{},
+		Fields:  "ts_code",
+	}
+
+	resp, err := c.doRequest(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+
+	if resp.Data == nil {
+		return nil, nil
+	}
+
+	result := make(map[string]bool)
+	for _, item := range resp.Data.Items {
+		if len(item) < 1 {
+			continue
+		}
+		result[toString(item[0])] = true
+	}
+
+	return result, nil
+}
+
 type QuoteItem struct {
 	TsCode       string  `json:"ts_code"`
 	PreClose     float64 `json:"pre_close"`

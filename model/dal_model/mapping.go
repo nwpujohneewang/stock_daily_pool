@@ -8,6 +8,7 @@ type StockTopicRelation struct {
 	ID            int64      `gorm:"column:id"              json:"id"`
 	TsCode        string     `gorm:"column:ts_code"         json:"ts_code"`
 	TopicID       int64      `gorm:"column:topic_id"        json:"topic_id"`
+	TopicName     string     `gorm:"column:topic_name"      json:"topic_name"`
 	Source        string     `gorm:"column:source"           json:"source"`
 	Confidence    *float64   `gorm:"column:confidence"       json:"confidence,omitempty"`
 	HitCount      int        `gorm:"column:hit_count"        json:"hit_count"`
