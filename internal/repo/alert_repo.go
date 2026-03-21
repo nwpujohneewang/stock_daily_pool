@@ -2,6 +2,7 @@ package repo
 
 import (
 	"context"
+	"time"
 
 	"gorm.io/gorm"
 	"stock/internal/model"
@@ -16,21 +17,13 @@ func NewAlertRepo(db *gorm.DB) *AlertRepo {
 }
 
 func (r *AlertRepo) Create(ctx context.Context, alert *model.StrategyAlert) (int64, error) {
-	var id int64
-	err := r.db.WithContext(ctx).Raw(`
-		INSERT INTO strategy_alerts (date, ts_code, stock_name, topic_id, topic_name, alert_type, trigger_price, trigger_time, prev_day_pct, extra_info, notified)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-		RETURNING id`,
-		alert.Date, alert.TsCode, alert.StockName, alert.TopicID, alert.TopicName,
-		alert.AlertType, alert.TriggerPrice, alert.TriggerTime, alert.PrevDayPct, alert.ExtraInfo, alert.Notified).Scan(&id).Error
-	return id, err
+	err := r.db.WithContext(ctx).Create(alert).Error
+	return alert.ID, err
 }
 
 func (r *AlertRepo) GetTodayAlerts(ctx context.Context, date string) ([]model.StrategyAlert, error) {
 	var alerts []model.StrategyAlert
-	err := r.db.WithContext(ctx).Raw(`
-		SELECT id, date, ts_code, stock_name, topic_id, topic_name, alert_type, trigger_price, trigger_time, prev_day_pct, extra_info, notified, created_at
-		FROM strategy_alerts WHERE date = ? ORDER BY trigger_time DESC`, date).Scan(&alerts).Error
+	err := r.db.WithContext(ctx).Where("date = ?", date).Order("trigger_time DESC").Find(&alerts).Error
 	if err != nil {
 		return nil, err
 	}
@@ -41,28 +34,21 @@ func (r *AlertRepo) GetHistory(ctx context.Context, startDate, endDate string, t
 	offset := (page - 1) * pageSize
 
 	var total int64
-	countQuery := `SELECT COUNT(*) FROM strategy_alerts WHERE date >= ? AND date <= ?`
-	args := []interface{}{startDate, endDate}
+	countQuery := r.db.WithContext(ctx).Model(&model.StrategyAlert{}).Where("date >= ? AND date <= ?", startDate, endDate)
 	if topicID != nil {
-		countQuery += ` AND topic_id = ?`
-		args = append(args, *topicID)
+		countQuery = countQuery.Where("topic_id = ?", *topicID)
 	}
-	if err := r.db.WithContext(ctx).Raw(countQuery, args...).Scan(&total).Error; err != nil {
+	if err := countQuery.Count(&total).Error; err != nil {
 		return nil, 0, err
 	}
 
-	query := `SELECT id, date, ts_code, stock_name, topic_id, topic_name, alert_type, trigger_price, trigger_time, prev_day_pct, extra_info, notified, created_at
-		FROM strategy_alerts WHERE date >= ? AND date <= ?`
-	if topicID != nil {
-		query += ` AND topic_id = ?`
-		query += ` ORDER BY trigger_time DESC LIMIT ? OFFSET ?`
-		var alerts []model.StrategyAlert
-		err := r.db.WithContext(ctx).Raw(query, startDate, endDate, *topicID, pageSize, offset).Scan(&alerts).Error
-		return alerts, total, err
-	}
-	query += ` ORDER BY trigger_time DESC LIMIT ? OFFSET ?`
 	var alerts []model.StrategyAlert
-	err := r.db.WithContext(ctx).Raw(query, startDate, endDate, pageSize, offset).Scan(&alerts).Error
+	query := r.db.WithContext(ctx).Where("date >= ? AND date <= ?", startDate, endDate).
+		Order("trigger_time DESC").Limit(pageSize).Offset(offset)
+	if topicID != nil {
+		query = query.Where("topic_id = ?", *topicID)
+	}
+	err := query.Find(&alerts).Error
 	return alerts, total, err
 }
 
@@ -97,10 +83,14 @@ func (r *AlertRepo) MarkAlerted(ctx context.Context, date, alertKey string) erro
 		tsCode = alertKey
 	}
 
-	return r.db.WithContext(ctx).Exec(`
-		INSERT INTO strategy_alerts (date, ts_code, topic_id, alert_type, notified)
-		VALUES (?, ?, ?, 0, FALSE)`,
-		date, tsCode, topicID).Error
+	dateParsed, _ := time.Parse("2006-01-02", date)
+	return r.db.WithContext(ctx).Create(&model.StrategyAlert{
+		Date:      dateParsed,
+		TsCode:    tsCode,
+		TopicID:   topicID,
+		AlertType: 0,
+		Notified:  false,
+	}).Error
 }
 
 func (r *AlertRepo) GetByDate(ctx context.Context, date string) ([]model.StrategyAlert, error) {

@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 	"stock/internal/model"
 )
 
@@ -70,19 +71,12 @@ func (r *BoardRepo) GetByCode(ctx context.Context, boardCode string) (*model.Boa
 }
 
 func (r *BoardRepo) Upsert(ctx context.Context, rule *model.BoardRule) error {
-	patternsJSON, err := json.Marshal(rule.CodePatterns)
-	if err != nil {
-		return fmt.Errorf("marshal code_patterns: %w", err)
-	}
-	return r.db.WithContext(ctx).Exec(`
-		INSERT INTO boards (board_code, board_name, limit_up_ratio, limit_down_ratio, code_patterns)
-		VALUES (?, ?, ?, ?, ?)
-		ON CONFLICT (board_code) DO UPDATE SET
-			board_name = EXCLUDED.board_name,
-			limit_up_ratio = EXCLUDED.limit_up_ratio,
-			limit_down_ratio = EXCLUDED.limit_down_ratio,
-			code_patterns = EXCLUDED.code_patterns
-	`, rule.BoardCode, rule.BoardName, rule.LimitUpRatio, rule.LimitDownRatio, patternsJSON).Error
+	return r.db.WithContext(ctx).Clauses(clause.OnConflict{
+		Columns: []clause.Column{{Name: "board_code"}},
+		DoUpdates: clause.AssignmentColumns([]string{
+			"board_name", "limit_up_ratio", "limit_down_ratio", "code_patterns",
+		}),
+	}).Create(rule).Error
 }
 
 func (r *BoardRepo) InitDefaultBoards(ctx context.Context) error {

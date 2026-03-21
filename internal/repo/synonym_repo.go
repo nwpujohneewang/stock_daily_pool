@@ -25,9 +25,7 @@ func NewSynonymRepo(db *gorm.DB) *SynonymRepo {
 
 func (r *SynonymRepo) GetByTopicID(ctx context.Context, topicID int64) ([]TopicSynonym, error) {
 	var results []TopicSynonym
-	err := r.db.WithContext(ctx).Raw(`
-		SELECT id, topic_id, synonym, source, created_at
-		FROM topic_synonyms WHERE topic_id = ? ORDER BY id`, topicID).Scan(&results).Error
+	err := r.db.WithContext(ctx).Where("topic_id = ?", topicID).Order("id").Find(&results).Error
 	if err != nil {
 		return nil, fmt.Errorf("query synonyms: %w", err)
 	}
@@ -36,9 +34,7 @@ func (r *SynonymRepo) GetByTopicID(ctx context.Context, topicID int64) ([]TopicS
 
 func (r *SynonymRepo) GetBySynonym(ctx context.Context, synonym string) (*TopicSynonym, error) {
 	var s TopicSynonym
-	err := r.db.WithContext(ctx).Raw(`
-		SELECT id, topic_id, synonym, source, created_at
-		FROM topic_synonyms WHERE synonym = ?`, synonym).Scan(&s).Error
+	err := r.db.WithContext(ctx).Where("synonym = ?", synonym).First(&s).Error
 	if err != nil {
 		return nil, err
 	}
@@ -46,32 +42,24 @@ func (r *SynonymRepo) GetBySynonym(ctx context.Context, synonym string) (*TopicS
 }
 
 func (r *SynonymRepo) Create(ctx context.Context, synonym TopicSynonym) (*TopicSynonym, error) {
-	var s TopicSynonym
-	err := r.db.WithContext(ctx).Raw(`
-		INSERT INTO topic_synonyms (topic_id, synonym, source)
-		VALUES (?, ?, ?)
-		ON CONFLICT (synonym) DO NOTHING
-		RETURNING id, topic_id, synonym, source, created_at`,
-		synonym.TopicID, synonym.Synonym, synonym.Source).Scan(&s).Error
+	err := r.db.WithContext(ctx).Create(&synonym).Error
 	if err != nil {
 		return nil, fmt.Errorf("insert synonym: %w", err)
 	}
-	return &s, nil
+	return &synonym, nil
 }
 
 func (r *SynonymRepo) Delete(ctx context.Context, id int64) error {
-	return r.db.WithContext(ctx).Exec(`DELETE FROM topic_synonyms WHERE id = ?`, id).Error
+	return r.db.WithContext(ctx).Delete(&TopicSynonym{}, id).Error
 }
 
 func (r *SynonymRepo) BatchCreate(ctx context.Context, synonyms []TopicSynonym) error {
-	for _, s := range synonyms {
-		if err := r.db.WithContext(ctx).Exec(`
-			INSERT INTO topic_synonyms (topic_id, synonym, source)
-			VALUES (?, ?, ?)
-			ON CONFLICT (synonym) DO NOTHING`,
-			s.TopicID, s.Synonym, s.Source).Error; err != nil {
-			return fmt.Errorf("batch insert synonym: %w", err)
-		}
+	if len(synonyms) == 0 {
+		return nil
+	}
+	err := r.db.WithContext(ctx).CreateInBatches(synonyms, 100).Error
+	if err != nil {
+		return fmt.Errorf("batch insert synonym: %w", err)
 	}
 	return nil
 }

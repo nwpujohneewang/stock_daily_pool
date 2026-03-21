@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 type Concept struct {
@@ -22,18 +23,19 @@ func NewConceptRepo(db *gorm.DB) *ConceptRepo {
 }
 
 func (r *ConceptRepo) Upsert(ctx context.Context, conceptName, conceptCode string) error {
-	return r.db.WithContext(ctx).Exec(`
-		INSERT INTO tushare_concepts (concept_code, concept_name, source, updated_at)
-		VALUES (?, ?, 'tushare', NOW())
-		ON CONFLICT (concept_code) DO UPDATE SET
-			concept_name = EXCLUDED.concept_name,
-			updated_at = NOW()
-	`, conceptCode, conceptName).Error
+	return r.db.WithContext(ctx).Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "concept_code"}},
+		DoUpdates: clause.AssignmentColumns([]string{"concept_name", "updated_at"}),
+	}).Create(&Concept{
+		ConceptCode: conceptCode,
+		ConceptName: conceptName,
+		Source:      "tushare",
+	}).Error
 }
 
 func (r *ConceptRepo) GetAll(ctx context.Context) ([]Concept, error) {
 	var concepts []Concept
-	err := r.db.WithContext(ctx).Raw(`SELECT id, concept_code, concept_name, source FROM tushare_concepts`).Scan(&concepts).Error
+	err := r.db.WithContext(ctx).Select("id, concept_code, concept_name, source").Find(&concepts).Error
 	if err != nil {
 		return nil, err
 	}
@@ -42,7 +44,7 @@ func (r *ConceptRepo) GetAll(ctx context.Context) ([]Concept, error) {
 
 func (r *ConceptRepo) GetByCode(ctx context.Context, conceptCode string) (*Concept, error) {
 	var c Concept
-	err := r.db.WithContext(ctx).Raw(`SELECT id, concept_code, concept_name, source FROM tushare_concepts WHERE concept_code = ?`, conceptCode).Scan(&c).Error
+	err := r.db.WithContext(ctx).Select("id, concept_code, concept_name, source").Where("concept_code = ?", conceptCode).First(&c).Error
 	if err != nil {
 		return nil, err
 	}
@@ -53,15 +55,19 @@ func (r *ConceptRepo) List(ctx context.Context, keyword string, page, pageSize i
 	offset := (page - 1) * pageSize
 
 	var total int64
-	if err := r.db.WithContext(ctx).Raw(`SELECT COUNT(*) FROM tushare_concepts WHERE (? = '' OR concept_name LIKE '%' || ? || '%')`, keyword, keyword).Scan(&total).Error; err != nil {
+	query := r.db.WithContext(ctx).Model(&Concept{})
+	if keyword != "" {
+		query = query.Where("concept_name LIKE ?", "%"+keyword+"%")
+	}
+	if err := query.Count(&total).Error; err != nil {
 		return nil, 0, err
 	}
 
 	var concepts []Concept
-	err := r.db.WithContext(ctx).Raw(`
-		SELECT id, concept_code, concept_name, source FROM tushare_concepts
-		WHERE (? = '' OR concept_name LIKE '%' || ? || '%')
-		ORDER BY concept_name LIMIT ? OFFSET ?`, keyword, keyword, pageSize, offset).Scan(&concepts).Error
+	err := r.db.WithContext(ctx).Select("id, concept_code, concept_name, source").
+		Where("? = '' OR concept_name LIKE ?", keyword, "%"+keyword+"%").
+		Order("concept_name").Limit(pageSize).Offset(offset).
+		Find(&concepts).Error
 	if err != nil {
 		return nil, 0, err
 	}

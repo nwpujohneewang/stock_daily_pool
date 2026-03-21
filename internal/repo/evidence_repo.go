@@ -32,23 +32,17 @@ func NewEvidenceRepo(db *gorm.DB) *EvidenceRepo {
 }
 
 func (r *EvidenceRepo) Create(ctx context.Context, e model.ClassificationAuditLog) (*model.ClassificationAuditLog, error) {
-	var created model.ClassificationAuditLog
-	err := r.db.WithContext(ctx).Raw(`
-		INSERT INTO classification_audit_log (date, ts_code, topic_id, classify_layer, strategy, candidate_scores, evidence_text, confidence)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-		RETURNING id, date, ts_code, topic_id, classify_layer, strategy, candidate_scores, evidence_text, confidence, corrected_topic_id, created_at`,
-		e.Date, e.TsCode, e.TopicID, e.ClassifyLayer, e.Strategy, e.CandidateScores, e.EvidenceText, e.Confidence).Scan(&created).Error
+	err := r.db.WithContext(ctx).Create(&e).Error
 	if err != nil {
 		return nil, fmt.Errorf("insert evidence: %w", err)
 	}
-	return &created, nil
+	return &e, nil
 }
 
 func (r *EvidenceRepo) GetByStock(ctx context.Context, tsCode string, date string) ([]model.ClassificationAuditLog, error) {
 	var results []model.ClassificationAuditLog
-	err := r.db.WithContext(ctx).Raw(`
-		SELECT id, date, ts_code, topic_id, classify_layer, strategy, candidate_scores, evidence_text, confidence, corrected_topic_id, created_at
-		FROM classification_audit_log WHERE ts_code = ? AND date = ? ORDER BY created_at DESC`, tsCode, date).Scan(&results).Error
+	err := r.db.WithContext(ctx).Where("ts_code = ? AND date = ?", tsCode, date).
+		Order("created_at DESC").Find(&results).Error
 	if err != nil {
 		return nil, fmt.Errorf("query evidence: %w", err)
 	}
@@ -57,9 +51,7 @@ func (r *EvidenceRepo) GetByStock(ctx context.Context, tsCode string, date strin
 
 func (r *EvidenceRepo) GetByID(ctx context.Context, id int64) (*model.ClassificationAuditLog, error) {
 	var e model.ClassificationAuditLog
-	err := r.db.WithContext(ctx).Raw(`
-		SELECT id, date, ts_code, topic_id, classify_layer, strategy, candidate_scores, evidence_text, confidence, corrected_topic_id, created_at
-		FROM classification_audit_log WHERE id = ?`, id).Scan(&e).Error
+	err := r.db.WithContext(ctx).Where("id = ?", id).First(&e).Error
 	if err != nil {
 		return nil, err
 	}
@@ -67,7 +59,8 @@ func (r *EvidenceRepo) GetByID(ctx context.Context, id int64) (*model.Classifica
 }
 
 func (r *EvidenceRepo) UpdateCorrectedTopicID(ctx context.Context, id int64, correctedTopicID int64) error {
-	return r.db.WithContext(ctx).Exec(`UPDATE classification_audit_log SET corrected_topic_id = ? WHERE id = ?`, correctedTopicID, id).Error
+	return r.db.WithContext(ctx).Model(&model.ClassificationAuditLog{}).
+		Where("id = ?", id).Update("corrected_topic_id", correctedTopicID).Error
 }
 
 type PaginatedEvidence struct {
@@ -82,15 +75,15 @@ func (r *EvidenceRepo) List(ctx context.Context, page, pageSize int) (*Paginated
 	offset := (page - 1) * pageSize
 
 	var total int64
-	err := r.db.WithContext(ctx).Raw(`SELECT COUNT(*) FROM classification_audit_log`).Scan(&total).Error
+	err := r.db.WithContext(ctx).Model(&model.ClassificationAuditLog{}).Count(&total).Error
 	if err != nil {
 		return nil, fmt.Errorf("count evidence: %w", err)
 	}
 
 	var items []model.ClassificationAuditLog
-	err = r.db.WithContext(ctx).Raw(`
-		SELECT id, date, ts_code, topic_id, classify_layer, strategy, candidate_scores, evidence_text, confidence, corrected_topic_id, created_at
-		FROM classification_audit_log ORDER BY created_at DESC LIMIT ? OFFSET ?`, pageSize, offset).Scan(&items).Error
+	err = r.db.WithContext(ctx).
+		Order("created_at DESC").Limit(pageSize).Offset(offset).
+		Find(&items).Error
 	if err != nil {
 		return nil, fmt.Errorf("query evidence list: %w", err)
 	}

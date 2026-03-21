@@ -2,8 +2,10 @@ package repo
 
 import (
 	"context"
+	"time"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 	"stock/internal/model"
 )
 
@@ -17,9 +19,7 @@ func NewTopicRepo(db *gorm.DB) *TopicRepo {
 
 func (r *TopicRepo) GetByID(ctx context.Context, id int64) (*model.Topic, error) {
 	var topic model.Topic
-	err := r.db.WithContext(ctx).Raw(`
-		SELECT id, name, source, jiuyan_field_id, first_seen_date, last_seen_date, occurrence_count, priority, is_active, created_at, updated_at
-		FROM topics WHERE id = ?`, id).Scan(&topic).Error
+	err := r.db.WithContext(ctx).Where("id = ?", id).First(&topic).Error
 	if err != nil {
 		return nil, err
 	}
@@ -28,9 +28,7 @@ func (r *TopicRepo) GetByID(ctx context.Context, id int64) (*model.Topic, error)
 
 func (r *TopicRepo) GetByName(ctx context.Context, name string) (*model.Topic, error) {
 	var topic model.Topic
-	err := r.db.WithContext(ctx).Raw(`
-		SELECT id, name, source, jiuyan_field_id, first_seen_date, last_seen_date, occurrence_count, priority, is_active, created_at, updated_at
-		FROM topics WHERE name = ?`, name).Scan(&topic).Error
+	err := r.db.WithContext(ctx).Where("name = ?", name).First(&topic).Error
 	if err != nil {
 		return nil, err
 	}
@@ -38,31 +36,33 @@ func (r *TopicRepo) GetByName(ctx context.Context, name string) (*model.Topic, e
 }
 
 func (r *TopicRepo) Upsert(ctx context.Context, topic *model.Topic) error {
-	return r.db.WithContext(ctx).Exec(`
-		INSERT INTO topics (name, source, jiuyan_field_id, first_seen_date, last_seen_date, occurrence_count, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, NOW())
-		ON CONFLICT (name) DO UPDATE SET
-			jiuyan_field_id = COALESCE(EXCLUDED.jiuyan_field_id, topics.jiuyan_field_id),
-			first_seen_date = LEAST(topics.first_seen_date, EXCLUDED.first_seen_date),
-			last_seen_date = GREATEST(topics.last_seen_date, EXCLUDED.last_seen_date),
-			occurrence_count = topics.occurrence_count + EXCLUDED.occurrence_count,
-			updated_at = NOW()
-	`, topic.Name, topic.Source, topic.JiuyanFieldID, topic.FirstSeenDate, topic.LastSeenDate, topic.OccurrenceCount).Error
+	return r.db.WithContext(ctx).Clauses(clause.OnConflict{
+		Columns: []clause.Column{{Name: "name"}},
+		DoUpdates: clause.AssignmentColumns([]string{
+			"jiuyan_field_id", "first_seen_date", "last_seen_date",
+			"occurrence_count", "updated_at",
+		}),
+	}).Create(topic).Error
 }
 
 func (r *TopicRepo) List(ctx context.Context, keyword string, page, pageSize int) ([]model.Topic, int64, error) {
 	offset := (page - 1) * pageSize
 
 	var total int64
-	if err := r.db.WithContext(ctx).Raw(`SELECT COUNT(*) FROM topics WHERE (? = '' OR name LIKE '%' || ? || '%')`, keyword, keyword).Scan(&total).Error; err != nil {
+	query := r.db.WithContext(ctx).Model(&model.Topic{})
+	if keyword != "" {
+		query = query.Where("name LIKE ?", "%"+keyword+"%")
+	}
+	if err := query.Count(&total).Error; err != nil {
 		return nil, 0, err
 	}
 
 	var topics []model.Topic
-	err := r.db.WithContext(ctx).Raw(`
-		SELECT id, name, source, jiuyan_field_id, first_seen_date, last_seen_date, occurrence_count, priority, is_active, created_at, updated_at
-		FROM topics WHERE (? = '' OR name LIKE '%' || ? || '%')
-		ORDER BY priority DESC, id ASC LIMIT ? OFFSET ?`, keyword, keyword, pageSize, offset).Scan(&topics).Error
+	err := r.db.WithContext(ctx).
+		Where("? = '' OR name LIKE ?", keyword, "%"+keyword+"%").
+		Order("priority DESC, id ASC").
+		Limit(pageSize).Offset(offset).
+		Find(&topics).Error
 	if err != nil {
 		return nil, 0, err
 	}
@@ -71,9 +71,7 @@ func (r *TopicRepo) List(ctx context.Context, keyword string, page, pageSize int
 
 func (r *TopicRepo) GetActiveTopics(ctx context.Context) ([]model.Topic, error) {
 	var topics []model.Topic
-	err := r.db.WithContext(ctx).Raw(`
-		SELECT id, name, source, jiuyan_field_id, first_seen_date, last_seen_date, occurrence_count, priority, is_active, created_at, updated_at
-		FROM topics WHERE is_active = TRUE ORDER BY priority DESC`).Scan(&topics).Error
+	err := r.db.WithContext(ctx).Where("is_active = ?", true).Order("priority DESC").Find(&topics).Error
 	if err != nil {
 		return nil, err
 	}
@@ -82,26 +80,29 @@ func (r *TopicRepo) GetActiveTopics(ctx context.Context) ([]model.Topic, error) 
 
 func (r *TopicRepo) GetIDByName(ctx context.Context, name string) (int64, error) {
 	var id int64
-	err := r.db.WithContext(ctx).Raw(`SELECT id FROM topics WHERE name = ?`, name).Scan(&id).Error
+	err := r.db.WithContext(ctx).Model(&model.Topic{}).Select("id").Where("name = ?", name).Scan(&id).Error
 	return id, err
 }
 
 func (r *TopicRepo) Update(ctx context.Context, id int64, name string, isActive bool, priority int) error {
-	return r.db.WithContext(ctx).Exec(`
-		UPDATE topics SET name = ?, is_active = ?, priority = ?, updated_at = NOW()
-		WHERE id = ?`, name, isActive, priority, id).Error
+	return r.db.WithContext(ctx).Model(&model.Topic{}).Where("id = ?", id).Updates(map[string]interface{}{
+		"name":       name,
+		"is_active":  isActive,
+		"priority":   priority,
+		"updated_at": time.Now(),
+	}).Error
 }
 
 func (r *TopicRepo) Delete(ctx context.Context, id int64) error {
-	return r.db.WithContext(ctx).Exec(`UPDATE topics SET is_active = FALSE, updated_at = NOW() WHERE id = ?`, id).Error
+	return r.db.WithContext(ctx).Model(&model.Topic{}).Where("id = ?", id).Update("is_active", false).Error
 }
 
 func (r *TopicRepo) Merge(ctx context.Context, sourceID, targetID int64) error {
-	if err := r.db.WithContext(ctx).Exec(`UPDATE stock_topic_relations SET topic_id = ? WHERE topic_id = ?`, targetID, sourceID).Error; err != nil {
+	if err := r.db.WithContext(ctx).Model(&model.StockTopicRelation{}).Where("topic_id = ?", sourceID).Update("topic_id", targetID).Error; err != nil {
 		return err
 	}
-	if err := r.db.WithContext(ctx).Exec(`UPDATE topic_synonyms SET topic_id = ? WHERE topic_id = ?`, targetID, sourceID).Error; err != nil {
+	if err := r.db.WithContext(ctx).Model(&TopicSynonym{}).Where("topic_id = ?", sourceID).Update("topic_id", targetID).Error; err != nil {
 		return err
 	}
-	return r.db.WithContext(ctx).Exec(`UPDATE topics SET is_active = FALSE, updated_at = NOW() WHERE id = ?`, sourceID).Error
+	return r.db.WithContext(ctx).Model(&model.Topic{}).Where("id = ?", sourceID).Update("is_active", false).Error
 }

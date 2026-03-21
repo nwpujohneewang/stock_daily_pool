@@ -157,7 +157,7 @@ func (c *Client) StockBasic(ctx context.Context) ([]StockBasicItem, error) {
 	req := &TushareRequest{
 		APIName: "stock_basic",
 		Params:  map[string]interface{}{"exchange": "", "list_status": "L"},
-		Fields:  "ts_code,symbol,name,industry,list_date,exchange,is_hs,is_st,area",
+		Fields:  "ts_code,symbol,name,industry,list_date,exchange,is_hs,area",
 	}
 
 	resp, err := c.doRequest(ctx, req)
@@ -182,8 +182,7 @@ func (c *Client) StockBasic(ctx context.Context) ([]StockBasicItem, error) {
 			ListDate: toString(item[4]),
 			Exchange: toString(item[5]),
 			IsHS:     toString(item[6]),
-			IsST:     item[7] == "1",
-			Area:     toString(item[8]),
+			Area:     toString(item[7]),
 		})
 	}
 

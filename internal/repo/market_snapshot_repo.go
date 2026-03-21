@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 type MarketSnapshot struct {
@@ -29,25 +30,18 @@ func NewMarketSnapshotRepo(db *gorm.DB) *MarketSnapshotRepo {
 }
 
 func (r *MarketSnapshotRepo) Upsert(ctx context.Context, snapshot *MarketSnapshot) error {
-	return r.db.WithContext(ctx).Exec(`
-		INSERT INTO market_snapshots (date, status, raw_data, topic_count, stock_count, updated_at)
-		VALUES (?, ?, ?, ?, ?, NOW())
-		ON CONFLICT (date) DO UPDATE SET
-			status = EXCLUDED.status,
-			raw_data = EXCLUDED.raw_data,
-			topic_count = EXCLUDED.topic_count,
-			stock_count = EXCLUDED.stock_count,
-			retry_count = market_snapshots.retry_count + 1,
-			updated_at = NOW()
-	`, snapshot.Date, snapshot.Status, snapshot.RawData, snapshot.TopicCount, snapshot.StockCount).Error
+	return r.db.WithContext(ctx).Clauses(clause.OnConflict{
+		Columns: []clause.Column{{Name: "date"}},
+		DoUpdates: clause.AssignmentColumns([]string{
+			"status", "raw_data", "topic_count", "stock_count",
+			"retry_count", "updated_at",
+		}),
+	}).Create(snapshot).Error
 }
 
 func (r *MarketSnapshotRepo) GetByDate(ctx context.Context, date string) (*MarketSnapshot, error) {
 	var m MarketSnapshot
-	err := r.db.WithContext(ctx).Raw(`
-		SELECT id, date, status, raw_data, topic_count, stock_count, retry_count, error_msg, created_at, updated_at
-		FROM market_snapshots WHERE date = ?
-	`, date).Scan(&m).Error
+	err := r.db.WithContext(ctx).Where("date = ?", date).First(&m).Error
 	if err != nil {
 		return nil, err
 	}
@@ -56,7 +50,8 @@ func (r *MarketSnapshotRepo) GetByDate(ctx context.Context, date string) (*Marke
 
 func (r *MarketSnapshotRepo) GetFailedDates(ctx context.Context) ([]string, error) {
 	var dates []string
-	err := r.db.WithContext(ctx).Raw(`SELECT date FROM market_snapshots WHERE status = 2 ORDER BY date DESC`).Scan(&dates).Error
+	err := r.db.WithContext(ctx).Select("date").Where("status = ?", 2).
+		Order("date DESC").Find(&dates).Error
 	if err != nil {
 		return nil, err
 	}
@@ -64,7 +59,11 @@ func (r *MarketSnapshotRepo) GetFailedDates(ctx context.Context) ([]string, erro
 }
 
 func (r *MarketSnapshotRepo) UpdateStatus(ctx context.Context, date string, status int, errorMsg string) error {
-	return r.db.WithContext(ctx).Exec(`
-		UPDATE market_snapshots SET status = ?, error_msg = ?, updated_at = NOW() WHERE date = ?
-	`, status, errorMsg, date).Error
+	return r.db.WithContext(ctx).Model(&MarketSnapshot{}).
+		Where("date = ?", date).
+		Updates(map[string]interface{}{
+			"status":     status,
+			"error_msg":  errorMsg,
+			"updated_at": time.Now(),
+		}).Error
 }
