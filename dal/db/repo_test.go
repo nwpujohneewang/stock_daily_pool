@@ -1,4 +1,4 @@
-package repo
+package db
 
 import (
 	"testing"
@@ -7,56 +7,56 @@ import (
 )
 
 func TestNewStockRepo(t *testing.T) {
-	repo := &StockRepo{}
+	repo := NewStockRepository()
 	assert.NotNil(t, repo)
 }
 
 func TestNewTopicRepo(t *testing.T) {
-	repo := &TopicRepo{}
+	repo := NewTopicRepository()
 	assert.NotNil(t, repo)
 }
 
 func TestNewAlertRepo(t *testing.T) {
-	repo := &AlertRepo{}
+	repo := NewAlertRepository()
 	assert.NotNil(t, repo)
 }
 
 func TestNewPoolRepo(t *testing.T) {
-	repo := &PoolRepo{}
+	repo := NewPoolRepository()
 	assert.NotNil(t, repo)
 }
 
 func TestNewMappingRepo(t *testing.T) {
-	repo := &MappingRepo{}
+	repo := NewMappingRepository()
 	assert.NotNil(t, repo)
 }
 
 func TestNewBoardRepo(t *testing.T) {
-	repo := &BoardRepo{}
+	repo := NewBoardRepository()
 	assert.NotNil(t, repo)
 }
 
 func TestNewSynonymRepo(t *testing.T) {
-	repo := &SynonymRepo{}
+	repo := NewSynonymRepository()
 	assert.NotNil(t, repo)
 }
 
 func TestNewEvidenceRepo(t *testing.T) {
-	repo := &EvidenceRepo{}
+	repo := NewEvidenceRepository()
 	assert.NotNil(t, repo)
 }
 
 func TestNewConceptRepo(t *testing.T) {
-	repo := &ConceptRepo{}
+	repo := NewConceptRepository()
 	assert.NotNil(t, repo)
 }
 
 func TestNewConceptDetailRepo(t *testing.T) {
-	repo := &ConceptDetailRepo{}
+	repo := NewConceptDetailRepository()
 	assert.NotNil(t, repo)
 }
 
 func TestNewMarketSnapshotRepo(t *testing.T) {
-	repo := &MarketSnapshotRepo{}
+	repo := NewMarketSnapshotRepository()
 	assert.NotNil(t, repo)
 }

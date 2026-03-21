@@ -5,17 +5,12 @@ import (
 	"log"
 	"time"
 
-	"stock/internal/cache"
-	"stock/internal/repo"
 	"stock/internal/service"
 )
 
 type Ticker struct {
 	cron           *cronWrapper
 	monitorService *service.MonitorService
-	stockRepo      *repo.StockRepo
-	poolCache      *cache.PoolCache
-	focusCache     *cache.FocusCache
 	logger         *log.Logger
 	intervalSec    int
 }
@@ -29,15 +24,9 @@ func (c *cronWrapper) Now() time.Time {
 func NewTicker(
 	intervalSec int,
 	monitorService *service.MonitorService,
-	stockRepo *repo.StockRepo,
-	poolCache *cache.PoolCache,
-	focusCache *cache.FocusCache,
 ) *Ticker {
 	return &Ticker{
 		monitorService: monitorService,
-		stockRepo:      stockRepo,
-		poolCache:      poolCache,
-		focusCache:     focusCache,
 		logger:         log.Default(),
 		intervalSec:    intervalSec,
 	}

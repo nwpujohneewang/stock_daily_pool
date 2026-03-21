@@ -2,28 +2,17 @@ package handler
 
 import (
 	"net/http"
+	"stock/dal/db"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
-	"github.com/redis/go-redis/v9"
-	"gorm.io/gorm"
 	"stock/config"
-	"stock/internal/cache"
-	"stock/internal/external/llm"
-	"stock/internal/external/tushare"
-	"stock/internal/repo"
 	"stock/internal/ws"
 )
 
 type Handlers struct {
-	DB         *gorm.DB
-	Redis      *redis.Client
-	Tushare    *tushare.Client
-	LLM        *llm.Client
-	Hub        *ws.Hub
-	QuoteCache *cache.QuoteCache
-	PoolCache  *cache.PoolCache
-	Config     *config.AppConfig
+	Hub    *ws.Hub
+	Config *config.AppConfig
 
 	PoolHandler
 	TopicHandler
@@ -36,45 +25,21 @@ type Handlers struct {
 }
 
 func NewHandlers(
-	db *gorm.DB,
-	redisClient *redis.Client,
-	tushareClient *tushare.Client,
-	llmClient *llm.Client,
 	hub *ws.Hub,
-	quoteCache *cache.QuoteCache,
-	poolCache *cache.PoolCache,
 	cfg *config.AppConfig,
 ) *Handlers {
-	topicRepo := repo.NewTopicRepo(db)
-	mappingRepo := repo.NewMappingRepo(db)
-	alertRepo := repo.NewAlertRepo(db)
-	poolRepo := repo.NewPoolRepo(db)
-	boardRepo := repo.NewBoardRepo(db)
-	synonymRepo := repo.NewSynonymRepo(db)
-	evidenceRepo := repo.NewEvidenceRepo(db)
-	conceptRepo := repo.NewConceptRepo(db)
-	conceptDetailRepo := repo.NewConceptDetailRepo(db)
-
-	focusCache := cache.NewFocusCache(redisClient)
-
 	h := &Handlers{
-		DB:         db,
-		Redis:      redisClient,
-		Tushare:    tushareClient,
-		LLM:        llmClient,
-		Hub:        hub,
-		QuoteCache: quoteCache,
-		PoolCache:  poolCache,
-		Config:     cfg,
+		Hub:    hub,
+		Config: cfg,
 	}
 
-	h.PoolHandler = *NewPoolHandler(poolRepo, alertRepo)
-	h.TopicHandler = *NewTopicHandler(topicRepo, mappingRepo, boardRepo)
-	h.AlertHandler = *NewAlertHandler(alertRepo)
-	h.SynonymHandler = *NewSynonymHandler(synonymRepo, topicRepo)
-	h.FocusHandler = *NewFocusHandler(focusCache, topicRepo)
-	h.EvidenceHandler = *NewEvidenceHandler(evidenceRepo)
-	h.ConceptHandler = *NewConceptHandler(conceptRepo, conceptDetailRepo, mappingRepo, topicRepo)
+	h.PoolHandler = *NewPoolHandler()
+	h.TopicHandler = *NewTopicHandler()
+	h.AlertHandler = *NewAlertHandler()
+	h.SynonymHandler = *NewSynonymHandler()
+	h.FocusHandler = *NewFocusHandler()
+	h.EvidenceHandler = *NewEvidenceHandler()
+	h.ConceptHandler = *NewConceptHandler()
 	h.WSHandler = *NewWSHandler(hub)
 
 	return h
@@ -94,27 +59,17 @@ func Fail(code int, message string) Response {
 	return Response{Code: code, Message: message}
 }
 
-type PoolHandler struct {
-	poolRepo  *repo.PoolRepo
-	alertRepo *repo.AlertRepo
-}
+type PoolHandler struct{}
 
-func NewPoolHandler(poolRepo *repo.PoolRepo, alertRepo *repo.AlertRepo) *PoolHandler {
-	return &PoolHandler{poolRepo: poolRepo, alertRepo: alertRepo}
+func NewPoolHandler() *PoolHandler {
+	return &PoolHandler{}
 }
 
 func (h *PoolHandler) GetLimitUp(c *gin.Context) {
-	if h.poolRepo == nil {
-		c.JSON(http.StatusInternalServerError, Fail(500, "repo not initialized"))
-		return
-	}
 	ctx := c.Request.Context()
-	date := c.Query("date")
-	if date == "" {
-		date = "2026-03-18"
-	}
+	date := c.DefaultQuery("date", "2026-03-18")
 
-	pools, err := h.poolRepo.GetByDate(ctx, date, 1)
+	pools, err := db.NewPoolRepository().GetByDate(ctx, date, 1)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, Fail(500, err.Error()))
 		return
@@ -124,17 +79,10 @@ func (h *PoolHandler) GetLimitUp(c *gin.Context) {
 }
 
 func (h *PoolHandler) GetAbove5(c *gin.Context) {
-	if h.poolRepo == nil {
-		c.JSON(http.StatusInternalServerError, Fail(500, "repo not initialized"))
-		return
-	}
 	ctx := c.Request.Context()
-	date := c.Query("date")
-	if date == "" {
-		date = "2026-03-18"
-	}
+	date := c.DefaultQuery("date", "2026-03-18")
 
-	pools, err := h.poolRepo.GetByDate(ctx, date, 2)
+	pools, err := db.NewPoolRepository().GetByDate(ctx, date, 2)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, Fail(500, err.Error()))
 		return
@@ -143,21 +91,13 @@ func (h *PoolHandler) GetAbove5(c *gin.Context) {
 	c.JSON(http.StatusOK, OK(pools))
 }
 
-type TopicHandler struct {
-	topicRepo   *repo.TopicRepo
-	mappingRepo *repo.MappingRepo
-	boardRepo   *repo.BoardRepo
-}
+type TopicHandler struct{}
 
-func NewTopicHandler(topicRepo *repo.TopicRepo, mappingRepo *repo.MappingRepo, boardRepo *repo.BoardRepo) *TopicHandler {
-	return &TopicHandler{topicRepo: topicRepo, mappingRepo: mappingRepo, boardRepo: boardRepo}
+func NewTopicHandler() *TopicHandler {
+	return &TopicHandler{}
 }
 
 func (h *TopicHandler) List(c *gin.Context) {
-	if h.topicRepo == nil {
-		c.JSON(http.StatusInternalServerError, Fail(500, "repo not initialized"))
-		return
-	}
 	ctx := c.Request.Context()
 	keyword := c.Query("keyword")
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
@@ -170,7 +110,7 @@ func (h *TopicHandler) List(c *gin.Context) {
 		pageSize = 50
 	}
 
-	topics, total, err := h.topicRepo.List(ctx, keyword, page, pageSize)
+	topics, total, err := db.NewTopicRepository().List(ctx, keyword, page, pageSize)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, Fail(500, err.Error()))
 		return
@@ -184,26 +124,17 @@ func (h *TopicHandler) List(c *gin.Context) {
 	}))
 }
 
-type AlertHandler struct {
-	alertRepo *repo.AlertRepo
-}
+type AlertHandler struct{}
 
-func NewAlertHandler(alertRepo *repo.AlertRepo) *AlertHandler {
-	return &AlertHandler{alertRepo: alertRepo}
+func NewAlertHandler() *AlertHandler {
+	return &AlertHandler{}
 }
 
 func (h *AlertHandler) GetTodayAlerts(c *gin.Context) {
-	if h.alertRepo == nil {
-		c.JSON(http.StatusInternalServerError, Fail(500, "repo not initialized"))
-		return
-	}
 	ctx := c.Request.Context()
-	date := c.Query("date")
-	if date == "" {
-		date = "2026-03-18"
-	}
+	date := c.DefaultQuery("date", "2026-03-18")
 
-	alerts, err := h.alertRepo.GetTodayAlerts(ctx, date)
+	alerts, err := db.NewAlertRepository().GetTodayAlerts(ctx, date)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, Fail(500, err.Error()))
 		return

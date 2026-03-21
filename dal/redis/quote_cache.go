@@ -1,25 +1,30 @@
-package cache
+package redis
 
 import (
 	"context"
 	"fmt"
 	"time"
 
-	"github.com/redis/go-redis/v9"
 	"stock/internal/model"
 )
 
-type QuoteCache struct {
-	client *redis.Client
+type QuoteCacheInterface interface {
+	Get(ctx context.Context, tsCode string) (*model.StockQuote, error)
+	Set(ctx context.Context, quote *model.StockQuote) error
+	Delete(ctx context.Context, tsCode string) error
 }
 
-func NewQuoteCache(client *redis.Client) *QuoteCache {
-	return &QuoteCache{client: client}
+var _ QuoteCacheInterface = (*QuoteCacheImpl)(nil)
+
+type QuoteCacheImpl struct{}
+
+func NewQuoteCache() *QuoteCacheImpl {
+	return &QuoteCacheImpl{}
 }
 
-func (c *QuoteCache) Get(ctx context.Context, tsCode string) (*model.StockQuote, error) {
+func (c QuoteCacheImpl) Get(ctx context.Context, tsCode string) (*model.StockQuote, error) {
 	key := fmt.Sprintf("rt:quote:%s", tsCode)
-	data, err := c.client.HGetAll(ctx, key).Result()
+	data, err := RedisClient(ctx).HGetAll(ctx, key).Result()
 	if err != nil {
 		return nil, err
 	}
@@ -56,7 +61,7 @@ func (c *QuoteCache) Get(ctx context.Context, tsCode string) (*model.StockQuote,
 	return quote, nil
 }
 
-func (c *QuoteCache) Set(ctx context.Context, quote *model.StockQuote) error {
+func (c QuoteCacheImpl) Set(ctx context.Context, quote *model.StockQuote) error {
 	key := fmt.Sprintf("rt:quote:%s", quote.TsCode)
 
 	fields := map[string]interface{}{
@@ -69,10 +74,10 @@ func (c *QuoteCache) Set(ctx context.Context, quote *model.StockQuote) error {
 		"update_time": quote.UpdateTime.Format("15:04:05"),
 	}
 
-	return c.client.HSet(ctx, key, fields).Err()
+	return RedisClient(ctx).HSet(ctx, key, fields).Err()
 }
 
-func (c *QuoteCache) Delete(ctx context.Context, tsCode string) error {
+func (c QuoteCacheImpl) Delete(ctx context.Context, tsCode string) error {
 	key := fmt.Sprintf("rt:quote:%s", tsCode)
-	return c.client.Del(ctx, key).Err()
+	return RedisClient(ctx).Del(ctx, key).Err()
 }

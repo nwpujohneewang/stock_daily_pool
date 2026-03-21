@@ -8,20 +8,24 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-var Client *redis.Client
+var globalClient *redis.Client
 
 func Init() {
 	c := config.GlobalConfig.Redis
-	Client = redis.NewClient(&redis.Options{
+	globalClient = redis.NewClient(&redis.Options{
 		Addr:     c.Addr,
 		Password: c.Password,
 		DB:       c.DB,
 	})
 
 	ctx := context.Background()
-	if err := Client.Ping(ctx).Err(); err != nil {
+	if err := globalClient.Ping(ctx).Err(); err != nil {
 		fmt.Printf("Warning: failed to connect to redis: %v\n", err)
 	} else {
 		fmt.Println("Redis connected successfully")
 	}
+}
+
+func RedisClient(ctx context.Context) *redis.Client {
+	return globalClient
 }

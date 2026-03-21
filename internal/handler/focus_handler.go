@@ -2,36 +2,27 @@ package handler
 
 import (
 	"net/http"
+	"stock/dal/db"
+	"stock/dal/redis"
+	"stock/internal/model"
 	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"stock/internal/cache"
-	"stock/internal/model"
-	"stock/internal/repo"
 )
 
-type FocusHandler struct {
-	focusCache *cache.FocusCache
-	topicRepo  *repo.TopicRepo
-}
+type FocusHandler struct{}
 
-func NewFocusHandler(focusCache *cache.FocusCache, topicRepo *repo.TopicRepo) *FocusHandler {
-	return &FocusHandler{focusCache: focusCache, topicRepo: topicRepo}
+func NewFocusHandler() *FocusHandler {
+	return &FocusHandler{}
 }
 
 func (h *FocusHandler) Get(c *gin.Context) {
-	if h.focusCache == nil || h.topicRepo == nil {
-		c.JSON(http.StatusInternalServerError, Fail(500, "repo not initialized"))
-		return
-	}
 	ctx := c.Request.Context()
-	date := c.Query("date")
-	if date == "" {
-		date = time.Now().Format("2006-01-02")
-	}
+	date := c.DefaultQuery("date", time.Now().Format("2006-01-02"))
 
-	topicIDs, err := h.focusCache.GetFocusTopics(ctx, date)
+	focusCache := redis.NewFocusCache()
+	topicIDs, err := focusCache.GetFocusTopics(ctx, date)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, Fail(500, err.Error()))
 		return
@@ -39,7 +30,7 @@ func (h *FocusHandler) Get(c *gin.Context) {
 
 	var topics []model.Topic
 	for _, id := range topicIDs {
-		topic, err := h.topicRepo.GetByID(ctx, id)
+		topic, err := db.NewTopicRepository().GetByID(ctx, id)
 		if err != nil {
 			continue
 		}
@@ -50,10 +41,6 @@ func (h *FocusHandler) Get(c *gin.Context) {
 }
 
 func (h *FocusHandler) Set(c *gin.Context) {
-	if h.focusCache == nil {
-		c.JSON(http.StatusInternalServerError, Fail(500, "cache not initialized"))
-		return
-	}
 	ctx := c.Request.Context()
 	var req struct {
 		Date     string  `json:"date"`
@@ -68,7 +55,8 @@ func (h *FocusHandler) Set(c *gin.Context) {
 		req.Date = time.Now().Format("2006-01-02")
 	}
 
-	if err := h.focusCache.SetFocusTopics(ctx, req.Date, req.TopicIDs); err != nil {
+	focusCache := redis.NewFocusCache()
+	if err := focusCache.SetFocusTopics(ctx, req.Date, req.TopicIDs); err != nil {
 		c.JSON(http.StatusInternalServerError, Fail(500, err.Error()))
 		return
 	}
@@ -77,15 +65,8 @@ func (h *FocusHandler) Set(c *gin.Context) {
 }
 
 func (h *FocusHandler) Delete(c *gin.Context) {
-	if h.focusCache == nil {
-		c.JSON(http.StatusInternalServerError, Fail(500, "cache not initialized"))
-		return
-	}
 	ctx := c.Request.Context()
-	date := c.Query("date")
-	if date == "" {
-		date = time.Now().Format("2006-01-02")
-	}
+	date := c.DefaultQuery("date", time.Now().Format("2006-01-02"))
 
 	topicIDInt, err := strconv.ParseInt(c.Param("topic_id"), 10, 64)
 	if err != nil {
@@ -93,7 +74,8 @@ func (h *FocusHandler) Delete(c *gin.Context) {
 		return
 	}
 
-	if err := h.focusCache.RemoveFocusTopic(ctx, date, topicIDInt); err != nil {
+	focusCache := redis.NewFocusCache()
+	if err := focusCache.RemoveFocusTopic(ctx, date, topicIDInt); err != nil {
 		c.JSON(http.StatusInternalServerError, Fail(500, err.Error()))
 		return
 	}

@@ -3,12 +3,12 @@ package scheduler
 import (
 	"context"
 	"log"
+	"stock/dal/redis"
 	"time"
 
 	"github.com/robfig/cron/v3"
 	"stock/config"
-	"stock/internal/cache"
-	"stock/internal/repo"
+	"stock/dal/db"
 	"stock/internal/service"
 )
 
@@ -16,26 +16,17 @@ type Scheduler struct {
 	cron           *cron.Cron
 	cfg            *config.SchedulerConfig
 	monitorService *service.MonitorService
-	stockRepo      *repo.StockRepo
-	poolCache      *cache.PoolCache
-	focusCache     *cache.FocusCache
 	logger         *log.Logger
 }
 
 func NewScheduler(
 	cfg *config.SchedulerConfig,
 	monitorService *service.MonitorService,
-	stockRepo *repo.StockRepo,
-	poolCache *cache.PoolCache,
-	focusCache *cache.FocusCache,
 ) *Scheduler {
 	return &Scheduler{
 		cron:           cron.New(cron.WithSeconds()),
 		cfg:            cfg,
 		monitorService: monitorService,
-		stockRepo:      stockRepo,
-		poolCache:      poolCache,
-		focusCache:     focusCache,
 		logger:         log.Default(),
 	}
 }
@@ -69,10 +60,12 @@ func (s *Scheduler) preMarketInit() {
 
 	s.logger.Printf("running pre-market init for %s", date)
 
-	_ = s.poolCache.RemoveLimitUp(ctx, getPrevDate(date), "")
-	_ = s.poolCache.RemoveAbove5(ctx, getPrevDate(date), "")
+	poolCache := redis.NewPoolCache()
+	_ = poolCache.RemoveLimitUp(ctx, getPrevDate(date), "")
+	_ = poolCache.RemoveAbove5(ctx, getPrevDate(date), "")
 
-	stocks, err := s.stockRepo.GetActiveStocks(ctx)
+	stockRepo := db.NewStockRepository()
+	stocks, err := stockRepo.GetActiveStocks(ctx)
 	if err != nil {
 		s.logger.Printf("get active stocks: %v", err)
 		return

@@ -1,6 +1,7 @@
 package db
 
 import (
+	"context"
 	"fmt"
 	"stock/config"
 
@@ -32,4 +33,8 @@ func Init() {
 	sqlDB.SetMaxIdleConns(config.GlobalConfig.Database.MaxIdleConns)
 
 	fmt.Println("PostgreSQL connected successfully via GORM")
+}
+
+func PostgresStockDB(ctx context.Context) *gorm.DB {
+	return DB.WithContext(ctx)
 }

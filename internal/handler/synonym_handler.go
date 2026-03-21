@@ -2,26 +2,20 @@ package handler
 
 import (
 	"net/http"
+	"stock/dal/db"
+	"stock/internal/model"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
-	"stock/internal/repo"
 )
 
-type SynonymHandler struct {
-	synonymRepo *repo.SynonymRepo
-	topicRepo   *repo.TopicRepo
-}
+type SynonymHandler struct{}
 
-func NewSynonymHandler(synonymRepo *repo.SynonymRepo, topicRepo *repo.TopicRepo) *SynonymHandler {
-	return &SynonymHandler{synonymRepo: synonymRepo, topicRepo: topicRepo}
+func NewSynonymHandler() *SynonymHandler {
+	return &SynonymHandler{}
 }
 
 func (h *SynonymHandler) List(c *gin.Context) {
-	if h.synonymRepo == nil {
-		c.JSON(http.StatusInternalServerError, Fail(500, "repo not initialized"))
-		return
-	}
 	ctx := c.Request.Context()
 	topicID, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
@@ -29,7 +23,7 @@ func (h *SynonymHandler) List(c *gin.Context) {
 		return
 	}
 
-	synonyms, err := h.synonymRepo.GetByTopicID(ctx, topicID)
+	synonyms, err := db.NewSynonymRepository().GetByTopicID(ctx, topicID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, Fail(500, err.Error()))
 		return
@@ -39,10 +33,6 @@ func (h *SynonymHandler) List(c *gin.Context) {
 }
 
 func (h *SynonymHandler) Create(c *gin.Context) {
-	if h.synonymRepo == nil || h.topicRepo == nil {
-		c.JSON(http.StatusInternalServerError, Fail(500, "repo not initialized"))
-		return
-	}
 	ctx := c.Request.Context()
 	topicID, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
@@ -63,13 +53,13 @@ func (h *SynonymHandler) Create(c *gin.Context) {
 		return
 	}
 
-	synonym := repo.TopicSynonym{
+	synonym := model.TopicSynonym{
 		TopicID: topicID,
 		Synonym: req.Synonym,
 		Source:  "manual",
 	}
 
-	created, err := h.synonymRepo.Create(ctx, synonym)
+	created, err := db.NewSynonymRepository().Create(ctx, synonym)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, Fail(500, err.Error()))
 		return
@@ -79,10 +69,6 @@ func (h *SynonymHandler) Create(c *gin.Context) {
 }
 
 func (h *SynonymHandler) Delete(c *gin.Context) {
-	if h.synonymRepo == nil {
-		c.JSON(http.StatusInternalServerError, Fail(500, "repo not initialized"))
-		return
-	}
 	ctx := c.Request.Context()
 	synonymID, err := strconv.ParseInt(c.Param("synonym_id"), 10, 64)
 	if err != nil {
@@ -90,7 +76,7 @@ func (h *SynonymHandler) Delete(c *gin.Context) {
 		return
 	}
 
-	if err := h.synonymRepo.Delete(ctx, synonymID); err != nil {
+	if err := db.NewSynonymRepository().Delete(ctx, synonymID); err != nil {
 		c.JSON(http.StatusInternalServerError, Fail(500, err.Error()))
 		return
 	}

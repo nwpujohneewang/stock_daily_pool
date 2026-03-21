@@ -5,8 +5,6 @@ import (
 	"log"
 	"time"
 
-	"stock/internal/cache"
-	"stock/internal/repo"
 	"stock/internal/service"
 )
 
@@ -15,11 +13,6 @@ type DailyTask struct {
 	crawlerService  *service.CrawlerService
 	conceptService  *service.ConceptSyncService
 	snapshotService *service.SnapshotService
-	boardRepo       *repo.BoardRepo
-	poolCache       *cache.PoolCache
-	conceptCache    *cache.ConceptCache
-	mappingCache    *cache.MappingCache
-	focusCache      *cache.FocusCache
 	logger          *log.Logger
 }
 
@@ -28,22 +21,12 @@ func NewDailyTask(
 	crawlerService *service.CrawlerService,
 	conceptService *service.ConceptSyncService,
 	snapshotService *service.SnapshotService,
-	boardRepo *repo.BoardRepo,
-	poolCache *cache.PoolCache,
-	conceptCache *cache.ConceptCache,
-	mappingCache *cache.MappingCache,
-	focusCache *cache.FocusCache,
 ) *DailyTask {
 	return &DailyTask{
 		stockService:    stockService,
 		crawlerService:  crawlerService,
 		conceptService:  conceptService,
 		snapshotService: snapshotService,
-		boardRepo:       boardRepo,
-		poolCache:       poolCache,
-		conceptCache:    conceptCache,
-		mappingCache:    mappingCache,
-		focusCache:      focusCache,
 		logger:          log.Default(),
 	}
 }

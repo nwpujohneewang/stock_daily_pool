@@ -3,20 +3,17 @@ package service
 import (
 	"context"
 	"fmt"
+	"stock/dal/redis"
 	"time"
 
 	"stock/config"
-	"stock/internal/cache"
+	"stock/dal/db"
 	"stock/internal/model"
-	"stock/internal/repo"
 )
 
 type AlertService struct {
-	alertRepo  *repo.AlertRepo
-	focusCache *cache.FocusCache
-	poolRepo   *repo.PoolRepo
-	cfg        *config.MonitorConfig
-	logger     *logger
+	cfg    *config.MonitorConfig
+	logger *logger
 }
 
 type logger struct{}
@@ -25,13 +22,10 @@ func (l logger) Error(msg string, keys ...interface{}) { fmt.Println("[ERROR]", 
 func (l logger) Warn(msg string, keys ...interface{})  { fmt.Println("[WARN]", msg, keys) }
 func (l logger) Info(msg string, keys ...interface{})  { fmt.Println("[INFO]", msg, keys) }
 
-func NewAlertService(alertRepo *repo.AlertRepo, focusCache *cache.FocusCache, poolRepo *repo.PoolRepo, cfg *config.MonitorConfig) *AlertService {
+func NewAlertService(cfg *config.MonitorConfig) *AlertService {
 	return &AlertService{
-		alertRepo:  alertRepo,
-		focusCache: focusCache,
-		poolRepo:   poolRepo,
-		cfg:        cfg,
-		logger:     &logger{},
+		cfg:    cfg,
+		logger: &logger{},
 	}
 }
 
@@ -76,8 +70,9 @@ func (s *AlertService) CheckAndAlert(ctx context.Context, input AlertCheckInput)
 		return &AlertCheckOutput{ShouldAlert: false, RejectReason: "outside_trading_hours"}, nil
 	}
 
+	alertRepo := db.NewAlertRepository()
 	alertKey := fmt.Sprintf("%s:%d", input.TsCode, focusedTopicID)
-	alreadyAlerted, err := s.alertRepo.IsAlerted(ctx, input.Date, alertKey)
+	alreadyAlerted, err := alertRepo.IsAlerted(ctx, input.Date, alertKey)
 	if err != nil {
 		return nil, fmt.Errorf("check alerted: %w", err)
 	}
@@ -85,7 +80,7 @@ func (s *AlertService) CheckAndAlert(ctx context.Context, input AlertCheckInput)
 		return &AlertCheckOutput{ShouldAlert: false, RejectReason: "already_alerted_today"}, nil
 	}
 
-	if err := s.alertRepo.MarkAlerted(ctx, input.Date, alertKey); err != nil {
+	if err := alertRepo.MarkAlerted(ctx, input.Date, alertKey); err != nil {
 		return nil, fmt.Errorf("mark alerted: %w", err)
 	}
 
@@ -100,7 +95,7 @@ func (s *AlertService) CheckAndAlert(ctx context.Context, input AlertCheckInput)
 		PrevDayPct:  &input.PrevDayPct,
 	}
 
-	if _, err := s.alertRepo.Create(ctx, alert); err != nil {
+	if _, err := alertRepo.Create(ctx, alert); err != nil {
 		return nil, fmt.Errorf("create alert: %w", err)
 	}
 
@@ -114,8 +109,9 @@ func (s *AlertService) CheckAndAlert(ctx context.Context, input AlertCheckInput)
 }
 
 func (s *AlertService) checkFocus(ctx context.Context, input AlertCheckInput) (int64, string) {
+	focusCache := redis.NewFocusCache()
 	for i, tid := range input.TopicIDs {
-		isFocused, err := s.focusCache.IsFocused(ctx, input.Date, tid)
+		isFocused, err := focusCache.IsFocused(ctx, input.Date, tid)
 		if err == nil && isFocused {
 			return tid, input.TopicNames[i]
 		}
@@ -124,9 +120,11 @@ func (s *AlertService) checkFocus(ctx context.Context, input AlertCheckInput) (i
 }
 
 func (s *AlertService) GetTodayAlerts(ctx context.Context, date string) ([]model.StrategyAlert, error) {
-	return s.alertRepo.GetByDate(ctx, date)
+	alertRepo := db.NewAlertRepository()
+	return alertRepo.GetByDate(ctx, date)
 }
 
 func (s *AlertService) GetHistoryAlerts(ctx context.Context, startDate, endDate string, topicID *int64, page, pageSize int) ([]model.StrategyAlert, int64, error) {
-	return s.alertRepo.GetHistory(ctx, startDate, endDate, topicID, page, pageSize)
+	alertRepo := db.NewAlertRepository()
+	return alertRepo.GetHistory(ctx, startDate, endDate, topicID, page, pageSize)
 }

@@ -7,32 +7,21 @@ import (
 	"time"
 
 	"stock/config"
+	"stock/dal/db"
 	"stock/internal/external/jiuyan"
 	"stock/internal/model"
 	"stock/internal/pkg/converter"
-	"stock/internal/repo"
 )
 
 type CrawlerService struct {
-	topicRepo   *repo.TopicRepo
-	mappingRepo *repo.MappingRepo
-	synonymRepo *repo.SynonymRepo
-	cfg         *config.JiuyanConfig
-	logger      *log.Logger
+	cfg    *config.JiuyanConfig
+	logger *log.Logger
 }
 
-func NewCrawlerService(
-	topicRepo *repo.TopicRepo,
-	mappingRepo *repo.MappingRepo,
-	synonymRepo *repo.SynonymRepo,
-	cfg *config.JiuyanConfig,
-) *CrawlerService {
+func NewCrawlerService(cfg *config.JiuyanConfig) *CrawlerService {
 	return &CrawlerService{
-		topicRepo:   topicRepo,
-		mappingRepo: mappingRepo,
-		synonymRepo: synonymRepo,
-		cfg:         cfg,
-		logger:      log.Default(),
+		cfg:    cfg,
+		logger: log.Default(),
 	}
 }
 
@@ -42,29 +31,32 @@ func (s *CrawlerService) CrawlDate(ctx context.Context, date string) error {
 		return fmt.Errorf("fetch jiuyan data: %w", err)
 	}
 
+	topicRepo := db.NewTopicRepository()
+	mappingRepo := db.NewMappingRepository()
+	synonymRepo := db.NewSynonymRepository()
+
 	for _, field := range data {
 		topicName := field.Name
 
-		normalized, err := s.synonymRepo.GetBySynonym(ctx, topicName)
+		normalized, err := synonymRepo.GetBySynonym(ctx, topicName)
 		if err == nil && normalized != nil {
 			topicName = normalized.Synonym
 		}
 
+		now := time.Now()
 		topic := &model.Topic{
 			Name:          topicName,
 			Source:        "jiuyan",
 			JiuyanFieldID: &field.ActionFieldID,
-			LastSeenDate:  &time.Time{},
+			LastSeenDate:  &now,
+			FirstSeenDate: &now,
 		}
-		t := time.Now()
-		topic.LastSeenDate = &t
-		topic.FirstSeenDate = &t
-		if err := s.topicRepo.Upsert(ctx, topic); err != nil {
+		if err := topicRepo.Upsert(ctx, topic); err != nil {
 			s.logger.Printf("upsert topic %s failed: %v", topicName, err)
 			continue
 		}
 
-		topicID, err := s.topicRepo.GetIDByName(ctx, topicName)
+		topicID, err := topicRepo.GetIDByName(ctx, topicName)
 		if err != nil {
 			continue
 		}
@@ -80,10 +72,10 @@ func (s *CrawlerService) CrawlDate(ctx context.Context, date string) error {
 				TopicID:       topicID,
 				Source:        "jiuyan",
 				HitCount:      1,
-				LastSeenDate:  &t,
-				FirstSeenDate: &t,
+				LastSeenDate:  &now,
+				FirstSeenDate: &now,
 			}
-			if err := s.mappingRepo.Upsert(ctx, mapping); err != nil {
+			if err := mappingRepo.Upsert(ctx, mapping); err != nil {
 				s.logger.Printf("upsert mapping %s -> %d failed: %v", tsCode, topicID, err)
 			}
 		}

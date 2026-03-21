@@ -4,12 +4,22 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"stock/dal/redis"
 	"time"
 
-	"stock/internal/cache"
+	"stock/dal/db"
 	"stock/internal/model"
-	"stock/internal/repo"
 )
+
+type SnapshotService struct {
+	logger *log.Logger
+}
+
+func NewSnapshotService() *SnapshotService {
+	return &SnapshotService{
+		logger: log.Default(),
+	}
+}
 
 type PoolStockItem struct {
 	TsCode           string  `json:"ts_code"`
@@ -18,22 +28,6 @@ type PoolStockItem struct {
 	CurrentPrice     float64 `json:"current_price"`
 	FirstLimitTime   string  `json:"first_limit_time,omitempty"`
 	AttributionScore float64 `json:"attribution_score"`
-}
-
-type SnapshotService struct {
-	poolRepo  *repo.PoolRepo
-	poolCache *cache.PoolCache
-	stockRepo *repo.StockRepo
-	logger    *log.Logger
-}
-
-func NewSnapshotService(poolRepo *repo.PoolRepo, poolCache *cache.PoolCache, stockRepo *repo.StockRepo) *SnapshotService {
-	return &SnapshotService{
-		poolRepo:  poolRepo,
-		poolCache: poolCache,
-		stockRepo: stockRepo,
-		logger:    log.Default(),
-	}
 }
 
 type PoolGroup struct {
@@ -56,20 +50,23 @@ type PoolSection struct {
 }
 
 func (s *SnapshotService) TakeSnapshot(ctx context.Context, date string) error {
-	limitUpCodes, err := s.poolCache.GetLimitUpMembers(ctx, date)
+	poolCache := redis.NewPoolCache()
+	limitUpCodes, err := poolCache.GetLimitUpMembers(ctx, date)
 	if err != nil {
 		return fmt.Errorf("get limit up pool: %w", err)
 	}
 
-	above5Codes, err := s.poolCache.GetAbove5Members(ctx, date)
+	above5Codes, err := poolCache.GetAbove5Members(ctx, date)
 	if err != nil {
 		return fmt.Errorf("get above5 pool: %w", err)
 	}
 
 	t, _ := time.Parse("2006-01-02", date)
+	stockRepo := db.NewStockRepository()
+	poolRepo := db.NewPoolRepository()
 
 	for _, tsCode := range limitUpCodes {
-		stock, err := s.stockRepo.GetByTsCode(ctx, tsCode)
+		stock, err := stockRepo.GetByTsCode(ctx, tsCode)
 		if err != nil {
 			s.logger.Printf("get stock %s failed: %v", tsCode, err)
 			continue
@@ -81,13 +78,13 @@ func (s *SnapshotService) TakeSnapshot(ctx context.Context, date string) error {
 			StockName: stock.Name,
 			PoolType:  1,
 		}
-		if err := s.poolRepo.UpsertSnapshot(ctx, record); err != nil {
+		if err := poolRepo.UpsertSnapshot(ctx, record); err != nil {
 			s.logger.Printf("upsert limit up snapshot %s failed: %v", tsCode, err)
 		}
 	}
 
 	for _, tsCode := range above5Codes {
-		stock, err := s.stockRepo.GetByTsCode(ctx, tsCode)
+		stock, err := stockRepo.GetByTsCode(ctx, tsCode)
 		if err != nil {
 			s.logger.Printf("get stock %s failed: %v", tsCode, err)
 			continue
@@ -99,7 +96,7 @@ func (s *SnapshotService) TakeSnapshot(ctx context.Context, date string) error {
 			StockName: stock.Name,
 			PoolType:  2,
 		}
-		if err := s.poolRepo.UpsertSnapshot(ctx, record); err != nil {
+		if err := poolRepo.UpsertSnapshot(ctx, record); err != nil {
 			s.logger.Printf("upsert above5 snapshot %s failed: %v", tsCode, err)
 		}
 	}
@@ -107,19 +104,21 @@ func (s *SnapshotService) TakeSnapshot(ctx context.Context, date string) error {
 }
 
 func (s *SnapshotService) GetSnapshot(ctx context.Context, date string) (*PoolSnapshot, error) {
-	limitUpCodes, err := s.poolCache.GetLimitUpMembers(ctx, date)
+	poolCache := redis.NewPoolCache()
+	limitUpCodes, err := poolCache.GetLimitUpMembers(ctx, date)
 	if err != nil {
 		return nil, fmt.Errorf("get limit up members: %w", err)
 	}
 
-	above5Codes, err := s.poolCache.GetAbove5Members(ctx, date)
+	above5Codes, err := poolCache.GetAbove5Members(ctx, date)
 	if err != nil {
 		return nil, fmt.Errorf("get above5 members: %w", err)
 	}
 
+	stockRepo := db.NewStockRepository()
 	limitUpStocks := make([]PoolStockItem, 0, len(limitUpCodes))
 	for _, tsCode := range limitUpCodes {
-		stock, err := s.stockRepo.GetByTsCode(ctx, tsCode)
+		stock, err := stockRepo.GetByTsCode(ctx, tsCode)
 		if err != nil {
 			continue
 		}
@@ -131,7 +130,7 @@ func (s *SnapshotService) GetSnapshot(ctx context.Context, date string) (*PoolSn
 
 	above5Stocks := make([]PoolStockItem, 0, len(above5Codes))
 	for _, tsCode := range above5Codes {
-		stock, err := s.stockRepo.GetByTsCode(ctx, tsCode)
+		stock, err := stockRepo.GetByTsCode(ctx, tsCode)
 		if err != nil {
 			continue
 		}

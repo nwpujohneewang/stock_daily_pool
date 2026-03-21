@@ -2,25 +2,19 @@ package handler
 
 import (
 	"net/http"
+	"stock/dal/db"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
-	"stock/internal/repo"
 )
 
-type EvidenceHandler struct {
-	evidenceRepo *repo.EvidenceRepo
-}
+type EvidenceHandler struct{}
 
-func NewEvidenceHandler(evidenceRepo *repo.EvidenceRepo) *EvidenceHandler {
-	return &EvidenceHandler{evidenceRepo: evidenceRepo}
+func NewEvidenceHandler() *EvidenceHandler {
+	return &EvidenceHandler{}
 }
 
 func (h *EvidenceHandler) List(c *gin.Context) {
-	if h.evidenceRepo == nil {
-		c.JSON(http.StatusInternalServerError, Fail(500, "evidence repo not initialized"))
-		return
-	}
 	ctx := c.Request.Context()
 	tsCode := c.Param("ts_code")
 	date := c.Query("date")
@@ -34,8 +28,10 @@ func (h *EvidenceHandler) List(c *gin.Context) {
 		pageSize = 50
 	}
 
+	repo := db.NewEvidenceRepository()
+
 	if tsCode != "" {
-		evidences, err := h.evidenceRepo.GetByStock(ctx, tsCode, date)
+		evidences, err := repo.GetByStock(ctx, tsCode, date)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, Fail(500, err.Error()))
 			return
@@ -44,7 +40,7 @@ func (h *EvidenceHandler) List(c *gin.Context) {
 		return
 	}
 
-	result, err := h.evidenceRepo.List(ctx, page, pageSize)
+	result, err := repo.List(ctx, page, pageSize)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, Fail(500, err.Error()))
 		return
@@ -54,10 +50,6 @@ func (h *EvidenceHandler) List(c *gin.Context) {
 }
 
 func (h *EvidenceHandler) Correct(c *gin.Context) {
-	if h.evidenceRepo == nil {
-		c.JSON(http.StatusInternalServerError, Fail(500, "evidence repo not initialized"))
-		return
-	}
 	ctx := c.Request.Context()
 	c.Param("ts_code")
 	evidenceID, err := strconv.ParseInt(c.Param("id"), 10, 64)
@@ -79,13 +71,15 @@ func (h *EvidenceHandler) Correct(c *gin.Context) {
 		return
 	}
 
-	_, err = h.evidenceRepo.GetByID(ctx, evidenceID)
+	repo := db.NewEvidenceRepository()
+
+	_, err = repo.GetByID(ctx, evidenceID)
 	if err != nil {
 		c.JSON(http.StatusNotFound, Fail(404, "evidence not found"))
 		return
 	}
 
-	if err := h.evidenceRepo.UpdateCorrectedTopicID(ctx, evidenceID, req.CorrectedTopicID); err != nil {
+	if err := repo.UpdateCorrectedTopicID(ctx, evidenceID, req.CorrectedTopicID); err != nil {
 		c.JSON(http.StatusInternalServerError, Fail(500, err.Error()))
 		return
 	}

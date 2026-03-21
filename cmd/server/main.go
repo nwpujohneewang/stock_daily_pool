@@ -11,16 +11,13 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/redis/go-redis/v9"
 	"stock/config"
 	"stock/dal/db"
-	"stock/internal/cache"
-	"stock/internal/external/llm"
+	redis2 "stock/dal/redis"
 	"stock/internal/external/tushare"
 	"stock/internal/handler"
 	"stock/internal/middleware"
 	"stock/internal/pkg/logger"
-	"stock/internal/repo"
 	"stock/internal/service"
 	"stock/internal/ws"
 )
@@ -39,55 +36,18 @@ func main() {
 	ctx := context.Background()
 
 	db.Init()
-
-	// Initialize Redis client
-	redisClient := redis.NewClient(&redis.Options{
-		Addr:     cfg.Redis.Addr,
-		Password: cfg.Redis.Password,
-		DB:       cfg.Redis.DB,
-	})
-	defer redisClient.Close()
-
-	if _, err := redisClient.Ping(ctx).Result(); err != nil {
-		log.Fatalf("redis ping: %v", err)
-	}
+	redis2.Init()
 
 	// Initialize external clients
 	tushareClient := tushare.NewClient(&cfg.Tushare, cfg.Retry)
-	llmClient := llm.NewClient(&cfg.LLM)
 
-	quoteCache := cache.NewQuoteCache(redisClient)
-	poolCache := cache.NewPoolCache(redisClient)
-	focusCache := cache.NewFocusCache(redisClient)
-	mappingCache := cache.NewMappingCache(redisClient)
-	conceptCache := cache.NewConceptCache(redisClient)
+	quoteFetcher := service.NewQuoteFetcher(tushareClient, cfg.Monitor.ShardCount)
 
-	stockRepo := repo.NewStockRepo(db.DB)
-	boardRepo := repo.NewBoardRepo(db.DB)
-	alertRepo := repo.NewAlertRepo(db.DB)
-	poolRepo := repo.NewPoolRepo(db.DB)
-	mappingRepo := repo.NewMappingRepo(db.DB)
-	topicRepo := repo.NewTopicRepo(db.DB)
-	evidenceRepo := repo.NewEvidenceRepo(db.DB)
+	classifySvc := service.NewClassifyService()
 
-	quoteFetcher := service.NewQuoteFetcher(tushareClient, quoteCache, stockRepo, cfg.Monitor.ShardCount)
-
-	classifySvc := service.NewClassifyService(
-		mappingCache,
-		conceptCache,
-		topicRepo,
-		mappingRepo,
-		evidenceRepo,
-	)
-
-	alertSvc := service.NewAlertService(alertRepo, focusCache, poolRepo, &cfg.Monitor)
+	alertSvc := service.NewAlertService(&cfg.Monitor)
 
 	monitorService := service.NewMonitorService(
-		stockRepo,
-		quoteCache,
-		poolCache,
-		boardRepo,
-		poolRepo,
 		quoteFetcher,
 		classifySvc,
 		alertSvc,
@@ -97,7 +57,7 @@ func main() {
 	hub := ws.NewHub()
 	go hub.Run(ctx)
 
-	handlers := handler.NewHandlers(db.DB, redisClient, tushareClient, llmClient, hub, quoteCache, poolCache, cfg)
+	handlers := handler.NewHandlers(hub, cfg)
 
 	// Setup Gin router
 	router := setupRouter(cfg, handlers)

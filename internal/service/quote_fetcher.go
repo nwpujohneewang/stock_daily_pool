@@ -3,34 +3,28 @@ package service
 import (
 	"context"
 	"log"
+	"stock/dal/redis"
 	"sync"
 	"time"
 
-	"stock/internal/cache"
+	"stock/dal/db"
 	"stock/internal/external/tushare"
 	"stock/internal/model"
 	"stock/internal/pkg/shard"
-	"stock/internal/repo"
 )
 
 type QuoteFetcher struct {
 	tushareClient *tushare.Client
-	quoteCache    *cache.QuoteCache
-	stockRepo     *repo.StockRepo
 	shardCount    int
 	logger        *log.Logger
 }
 
 func NewQuoteFetcher(
 	tushareClient *tushare.Client,
-	quoteCache *cache.QuoteCache,
-	stockRepo *repo.StockRepo,
 	shardCount int,
 ) *QuoteFetcher {
 	return &QuoteFetcher{
 		tushareClient: tushareClient,
-		quoteCache:    quoteCache,
-		stockRepo:     stockRepo,
 		shardCount:    shardCount,
 		logger:        log.Default(),
 	}
@@ -39,7 +33,8 @@ func NewQuoteFetcher(
 // FetchAllQuotes 在每个10s周期调用，将全市场行情写入 Redis rt:quote:{ts_code}
 // 必须在 MonitorService.ProcessTick() 之前执行
 func (f *QuoteFetcher) FetchAllQuotes(ctx context.Context) error {
-	stocks, err := f.stockRepo.GetActiveStocks(ctx)
+	stockRepo := db.NewStockRepository()
+	stocks, err := stockRepo.GetActiveStocks(ctx)
 	if err != nil {
 		return err
 	}
@@ -70,6 +65,7 @@ func (f *QuoteFetcher) fetchBatch(ctx context.Context, tsCodes []string) {
 		return
 	}
 	now := time.Now()
+	quoteCache := redis.NewQuoteCache()
 	for _, q := range quotes {
 		stockQuote := &model.StockQuote{
 			TsCode:       q.TsCode,
@@ -81,7 +77,7 @@ func (f *QuoteFetcher) fetchBatch(ctx context.Context, tsCodes []string) {
 			TurnoverRate: q.TurnoverRate,
 			UpdateTime:   now,
 		}
-		if err := f.quoteCache.Set(ctx, stockQuote); err != nil {
+		if err := quoteCache.Set(ctx, stockQuote); err != nil {
 			f.logger.Printf("set quote %s failed: %v", q.TsCode, err)
 		}
 	}

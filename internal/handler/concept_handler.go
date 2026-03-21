@@ -2,38 +2,20 @@ package handler
 
 import (
 	"net/http"
+	"stock/dal/db"
+	"stock/internal/model"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
-	"stock/internal/repo"
 )
 
-type ConceptHandler struct {
-	conceptRepo   *repo.ConceptRepo
-	conceptDetail *repo.ConceptDetailRepo
-	mappingRepo   *repo.MappingRepo
-	topicRepo     *repo.TopicRepo
-}
+type ConceptHandler struct{}
 
-func NewConceptHandler(
-	conceptRepo *repo.ConceptRepo,
-	conceptDetail *repo.ConceptDetailRepo,
-	mappingRepo *repo.MappingRepo,
-	topicRepo *repo.TopicRepo,
-) *ConceptHandler {
-	return &ConceptHandler{
-		conceptRepo:   conceptRepo,
-		conceptDetail: conceptDetail,
-		mappingRepo:   mappingRepo,
-		topicRepo:     topicRepo,
-	}
+func NewConceptHandler() *ConceptHandler {
+	return &ConceptHandler{}
 }
 
 func (h *ConceptHandler) ListByTopic(c *gin.Context) {
-	if h.mappingRepo == nil {
-		c.JSON(http.StatusInternalServerError, Fail(500, "mapping repo not initialized"))
-		return
-	}
 	ctx := c.Request.Context()
 	topicID, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
@@ -41,7 +23,7 @@ func (h *ConceptHandler) ListByTopic(c *gin.Context) {
 		return
 	}
 
-	mappings, err := h.mappingRepo.GetConceptMappingsByTopic(ctx, topicID)
+	mappings, err := db.NewMappingRepository().GetConceptMappingsByTopic(ctx, topicID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, Fail(500, err.Error()))
 		return
@@ -51,10 +33,6 @@ func (h *ConceptHandler) ListByTopic(c *gin.Context) {
 }
 
 func (h *ConceptHandler) ListMappings(c *gin.Context) {
-	if h.conceptRepo == nil || h.mappingRepo == nil || h.topicRepo == nil {
-		c.JSON(http.StatusInternalServerError, Fail(500, "repo not initialized"))
-		return
-	}
 	ctx := c.Request.Context()
 	keyword := c.Query("keyword")
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
@@ -67,14 +45,18 @@ func (h *ConceptHandler) ListMappings(c *gin.Context) {
 		pageSize = 50
 	}
 
-	concepts, total, err := h.conceptRepo.List(ctx, keyword, page, pageSize)
+	conceptRepo := db.NewConceptRepository()
+	mappingRepo := db.NewMappingRepository()
+	topicRepo := db.NewTopicRepository()
+
+	concepts, total, err := conceptRepo.List(ctx, keyword, page, pageSize)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, Fail(500, err.Error()))
 		return
 	}
 
 	type ConceptWithMapping struct {
-		repo.Concept
+		model.TushareConcept
 		IsMapped  bool   `json:"is_mapped"`
 		TopicID   *int64 `json:"topic_id,omitempty"`
 		TopicName string `json:"topic_name,omitempty"`
@@ -82,12 +64,12 @@ func (h *ConceptHandler) ListMappings(c *gin.Context) {
 
 	var results []ConceptWithMapping
 	for _, concept := range concepts {
-		mapping, err := h.mappingRepo.GetConceptMapping(ctx, concept.ConceptName)
-		cm := ConceptWithMapping{Concept: concept}
+		mapping, err := mappingRepo.GetConceptMapping(ctx, concept.ConceptName)
+		cm := ConceptWithMapping{TushareConcept: concept}
 		if err == nil && mapping != nil {
 			cm.IsMapped = true
 			cm.TopicID = &mapping.TopicID
-			topic, err := h.topicRepo.GetByID(ctx, mapping.TopicID)
+			topic, err := topicRepo.GetByID(ctx, mapping.TopicID)
 			if err == nil && topic != nil {
 				cm.TopicName = topic.Name
 			}
@@ -103,10 +85,6 @@ func (h *ConceptHandler) ListMappings(c *gin.Context) {
 }
 
 func (h *ConceptHandler) CreateMapping(c *gin.Context) {
-	if h.mappingRepo == nil {
-		c.JSON(http.StatusInternalServerError, Fail(500, "mapping repo not initialized"))
-		return
-	}
 	ctx := c.Request.Context()
 	var req struct {
 		ConceptName string `json:"concept_name"`
@@ -118,7 +96,7 @@ func (h *ConceptHandler) CreateMapping(c *gin.Context) {
 		return
 	}
 
-	if err := h.mappingRepo.CreateConceptMapping(ctx, req.ConceptName, req.ConceptCode, req.TopicID, "manual"); err != nil {
+	if err := db.NewMappingRepository().CreateConceptMapping(ctx, req.ConceptName, req.ConceptCode, req.TopicID, "manual"); err != nil {
 		c.JSON(http.StatusInternalServerError, Fail(500, err.Error()))
 		return
 	}

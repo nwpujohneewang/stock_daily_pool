@@ -5,23 +5,18 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"stock/dal/redis"
 	"sync"
 	"time"
 
 	"stock/config"
-	"stock/internal/cache"
+	"stock/dal/db"
 	"stock/internal/model"
 	"stock/internal/pkg/limiter"
 	"stock/internal/pkg/shard"
-	"stock/internal/repo"
 )
 
 type MonitorService struct {
-	db           *repo.StockRepo
-	quoteCache   *cache.QuoteCache
-	poolCache    *cache.PoolCache
-	boardRepo    *repo.BoardRepo
-	poolRepo     *repo.PoolRepo
 	quoteFetcher *QuoteFetcher
 	classifySvc  *ClassifyService
 	alertSvc     *AlertService
@@ -33,22 +28,12 @@ type MonitorService struct {
 }
 
 func NewMonitorService(
-	db *repo.StockRepo,
-	quoteCache *cache.QuoteCache,
-	poolCache *cache.PoolCache,
-	boardRepo *repo.BoardRepo,
-	poolRepo *repo.PoolRepo,
 	quoteFetcher *QuoteFetcher,
 	classifySvc *ClassifyService,
 	alertSvc *AlertService,
 	cfg *config.MonitorConfig,
 ) *MonitorService {
 	return &MonitorService{
-		db:           db,
-		quoteCache:   quoteCache,
-		poolCache:    poolCache,
-		boardRepo:    boardRepo,
-		poolRepo:     poolRepo,
 		quoteFetcher: quoteFetcher,
 		classifySvc:  classifySvc,
 		alertSvc:     alertSvc,
@@ -77,7 +62,8 @@ func (s *MonitorService) ProcessTick(ctx context.Context, date string) error {
 		s.logger.Printf("fetch quotes failed: %v", err)
 	}
 
-	stocks, err := s.db.GetActiveStocks(ctx)
+	stockRepo := db.NewStockRepository()
+	stocks, err := stockRepo.GetActiveStocks(ctx)
 	if err != nil {
 		return fmt.Errorf("get active stocks: %w", err)
 	}
@@ -103,8 +89,10 @@ func (s *MonitorService) ProcessTick(ctx context.Context, date string) error {
 }
 
 func (s *MonitorService) processShard(ctx context.Context, date string, batch shard.ShardBatch) {
+	stockRepo := db.NewStockRepository()
+
 	for _, tsCode := range batch.TsCodes {
-		stock, err := s.db.GetByTsCode(ctx, tsCode)
+		stock, err := stockRepo.GetByTsCode(ctx, tsCode)
 		if err != nil {
 			s.logger.Printf("get stock %s: %v", tsCode, err)
 			continue
@@ -114,7 +102,8 @@ func (s *MonitorService) processShard(ctx context.Context, date string, batch sh
 			continue
 		}
 
-		quote, err := s.quoteCache.Get(ctx, tsCode)
+		quoteCache := redis.NewQuoteCache()
+		quote, err := quoteCache.Get(ctx, tsCode)
 		if err != nil || quote == nil {
 			continue
 		}
@@ -146,15 +135,17 @@ func (s *MonitorService) processShard(ctx context.Context, date string, batch sh
 		s.mu.Unlock()
 
 		if output.IsLimitUp {
-			s.poolCache.AddLimitUp(ctx, date, tsCode)
+			poolCache := redis.NewPoolCache()
+			poolCache.AddLimitUp(ctx, date, tsCode)
 			if output.IsFirstLimitUp {
-				s.poolCache.SetFirstLimitTime(ctx, date, tsCode, output.FirstLimitTime.Format("15:04:05"))
+				poolCache.SetFirstLimitTime(ctx, date, tsCode, output.FirstLimitTime.Format("15:04:05"))
 				if s.classifySvc != nil && s.alertSvc != nil {
 					s.triggerClassifyAndAlert(ctx, date, tsCode, stock.Name, quote, output)
 				}
 			}
 		} else if output.IsAbove5Pct {
-			s.poolCache.AddAbove5(ctx, date, tsCode)
+			poolCache := redis.NewPoolCache()
+			poolCache.AddAbove5(ctx, date, tsCode)
 		}
 	}
 }
@@ -172,7 +163,8 @@ func (s *MonitorService) triggerClassifyAndAlert(ctx context.Context, date, tsCo
 		}
 
 		prevDate := prevTradingDay(date)
-		prevPool, err := s.poolRepo.GetByTsCodeAndDate(classifyCtx, prevDate, tsCode)
+		poolRepo := db.NewPoolRepository()
+		prevPool, err := poolRepo.GetByTsCodeAndDate(classifyCtx, prevDate, tsCode)
 		if err != nil {
 			s.logger.Printf("get prev pool %s %s: %v", tsCode, prevDate, err)
 		}
@@ -249,35 +241,20 @@ func (s *MonitorService) isTradingTime(t time.Time) bool {
 }
 
 type ClassifyService struct {
-	mappingCache *cache.MappingCache
-	conceptCache *cache.ConceptCache
-	topicRepo    *repo.TopicRepo
-	mappingRepo  *repo.MappingRepo
-	evidenceRepo *repo.EvidenceRepo
-	logger       *log.Logger
+	logger *log.Logger
 }
 
-func NewClassifyService(
-	mappingCache *cache.MappingCache,
-	conceptCache *cache.ConceptCache,
-	topicRepo *repo.TopicRepo,
-	mappingRepo *repo.MappingRepo,
-	evidenceRepo *repo.EvidenceRepo,
-) *ClassifyService {
+func NewClassifyService() *ClassifyService {
 	return &ClassifyService{
-		mappingCache: mappingCache,
-		conceptCache: conceptCache,
-		topicRepo:    topicRepo,
-		mappingRepo:  mappingRepo,
-		evidenceRepo: evidenceRepo,
-		logger:       log.Default(),
+		logger: log.Default(),
 	}
 }
 
 func (s *ClassifyService) ClassifyStock(ctx context.Context, tsCode string) ([]model.TopicMapping, error) {
 	date := time.Now().Format("2006-01-02")
 
-	mappings, err := s.mappingCache.GetStockTopics(ctx, tsCode)
+	mappingCache := redis.NewMappingCache()
+	mappings, err := mappingCache.GetStockTopics(ctx, tsCode)
 	if err != nil {
 		return nil, err
 	}
@@ -293,15 +270,17 @@ func (s *ClassifyService) ClassifyStock(ctx context.Context, tsCode string) ([]m
 		return mappings, nil
 	}
 
-	pgMappings, err := s.mappingRepo.GetByTsCode(ctx, tsCode)
+	mappingRepo := db.NewMappingRepository()
+	pgMappings, err := mappingRepo.GetByTsCode(ctx, tsCode)
 	if err != nil {
 		return nil, err
 	}
 
 	if len(pgMappings) > 0 {
+		topicRepo := db.NewTopicRepository()
 		result := make([]model.TopicMapping, len(pgMappings))
 		for i, m := range pgMappings {
-			topic, _ := s.topicRepo.GetByID(ctx, m.TopicID)
+			topic, _ := topicRepo.GetByID(ctx, m.TopicID)
 			topicName := ""
 			if topic != nil {
 				topicName = topic.Name
@@ -314,12 +293,13 @@ func (s *ClassifyService) ClassifyStock(ctx context.Context, tsCode string) ([]m
 				LastSeenDate: m.LastSeenDate.Format("2006-01-02"),
 			}
 		}
-		s.mappingCache.SetStockTopics(ctx, tsCode, result)
+		mappingCache.SetStockTopics(ctx, tsCode, result)
 		s.saveEvidence(ctx, date, tsCode, pgMappings[0].TopicID, "L2_PG_JIUYAN", "JIUYAN_ATTR", result, "", 0.8)
 		return result, nil
 	}
 
-	concepts, err := s.conceptCache.GetStockConcepts(ctx, tsCode)
+	conceptCache := redis.NewConceptCache()
+	concepts, err := conceptCache.GetStockConcepts(ctx, tsCode)
 	if err != nil || concepts == nil {
 		s.saveEvidence(ctx, date, tsCode, 0, "L3_PG_CONCEPT", "CONCEPT_ATTR", nil, "no concepts found", 0.0)
 		return nil, nil
@@ -330,7 +310,8 @@ func (s *ClassifyService) ClassifyStock(ctx context.Context, tsCode string) ([]m
 }
 
 func (s *ClassifyService) saveEvidence(ctx context.Context, date, tsCode string, topicID int64, layer, strategy string, candidates []model.TopicMapping, evidenceText string, confidence float64) {
-	if s.evidenceRepo == nil {
+	evidenceRepo := db.NewEvidenceRepository()
+	if evidenceRepo == nil {
 		return
 	}
 	candidateScores, _ := json.Marshal(candidates)
@@ -345,14 +326,14 @@ func (s *ClassifyService) saveEvidence(ctx context.Context, date, tsCode string,
 		EvidenceText:    &evidenceText,
 		Confidence:      &confidence,
 	}
-	s.evidenceRepo.Create(ctx, e)
+	evidenceRepo.Create(ctx, e)
 }
 
 func (s *ClassifyService) NormalizeTopicName(ctx context.Context, rawName string) (int64, string, bool, error) {
-	topic, err := s.topicRepo.GetByName(ctx, rawName)
+	topicRepo := db.NewTopicRepository()
+	topic, err := topicRepo.GetByName(ctx, rawName)
 	if err == nil && topic != nil {
 		return topic.ID, topic.Name, false, nil
 	}
-
 	return 0, "", true, nil
 }

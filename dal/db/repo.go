@@ -1,4 +1,4 @@
-package repo
+package db
 
 // This file is kept for backward compatibility.
 // All repos have been moved to individual files:

@@ -7,29 +7,23 @@ import (
 	"time"
 
 	"stock/config"
+	"stock/dal/db"
 	"stock/internal/external/tushare"
 	"stock/internal/model"
 	"stock/internal/pkg/limiter"
-	"stock/internal/repo"
 )
 
 type StockService struct {
-	stockRepo     *repo.StockRepo
-	boardRepo     *repo.BoardRepo
 	tushareClient *tushare.Client
 	cfg           *config.TushareConfig
 	logger        *log.Logger
 }
 
 func NewStockService(
-	stockRepo *repo.StockRepo,
-	boardRepo *repo.BoardRepo,
 	tushareClient *tushare.Client,
 	cfg *config.TushareConfig,
 ) *StockService {
 	return &StockService{
-		stockRepo:     stockRepo,
-		boardRepo:     boardRepo,
 		tushareClient: tushareClient,
 		cfg:           cfg,
 		logger:        log.Default(),
@@ -42,6 +36,7 @@ func (s *StockService) SyncStockBasic(ctx context.Context) error {
 		return fmt.Errorf("fetch stock basic: %w", err)
 	}
 
+	stockRepo := db.NewStockRepository()
 	for _, stock := range stocks {
 		boardCode := s.detectBoard(stock.Symbol)
 		industry := stock.Industry
@@ -57,7 +52,7 @@ func (s *StockService) SyncStockBasic(ctx context.Context) error {
 			ListDate:  &listDate,
 			Status:    1,
 		}
-		if err := s.stockRepo.Upsert(ctx, bs); err != nil {
+		if err := stockRepo.Upsert(ctx, bs); err != nil {
 			s.logger.Printf("upsert stock %s failed: %v", stock.TsCode, err)
 		}
 	}
@@ -69,19 +64,20 @@ func (s *StockService) detectBoard(symbol string) string {
 }
 
 func (s *StockService) GetStock(ctx context.Context, tsCode string) (*model.StockBasicInfo, error) {
-	return s.stockRepo.GetByTsCode(ctx, tsCode)
+	return db.NewStockRepository().GetByTsCode(ctx, tsCode)
 }
 
 func (s *StockService) GetActiveStocks(ctx context.Context) ([]model.StockBasicInfo, error) {
-	return s.stockRepo.GetActiveStocks(ctx)
+	return db.NewStockRepository().GetActiveStocks(ctx)
 }
 
 func (s *StockService) GetStocksByBoard(ctx context.Context, boardCode string) ([]model.StockBasicInfo, error) {
-	return s.stockRepo.GetByBoardCode(ctx, boardCode)
+	return db.NewStockRepository().GetByBoardCode(ctx, boardCode)
 }
 
 func (s *StockService) LoadBoardRules(ctx context.Context) (map[model.BoardCode]*model.BoardRule, error) {
-	boards, err := s.boardRepo.GetAll(ctx)
+	boardRepo := db.NewBoardRepository()
+	boards, err := boardRepo.GetAll(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("get all boards: %w", err)
 	}
