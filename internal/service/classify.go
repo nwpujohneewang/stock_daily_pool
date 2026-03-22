@@ -214,7 +214,7 @@ func (s *ClassifyServiceImpl) ClassifyStockBatch(ctx context.Context, tsCodes []
 		var result []dal_model.TopicRelation
 		if hasManual != nil {
 			result = []dal_model.TopicRelation{*hasManual}
-			s.saveEvidence(ctx, date, tc, hasManual.TopicID, "L1_REDIS", "MANUAL", mappings, "", 1.0)
+			//s.saveEvidence(ctx, date, tc, hasManual.TopicID, "L1_REDIS", "MANUAL", mappings, "", 1.0)
 		} else {
 			attrInput := attribution.AttributionInput{
 				TsCode:         tc,
@@ -227,12 +227,12 @@ func (s *ClassifyServiceImpl) ClassifyStockBatch(ctx context.Context, tsCodes []
 			attrOut, err := strategy.RunAttribution(ctx, attrInput)
 			if err != nil || len(attrOut.FinalTopicIDs) == 0 {
 				if len(mappings) > 0 {
-					s.saveEvidence(ctx, date, tc, mappings[0].TopicID, "L1_REDIS", "JIUYAN_ATTR", mappings, "", 0.5)
+					//s.saveEvidence(ctx, date, tc, mappings[0].TopicID, "L1_REDIS", "JIUYAN_ATTR", mappings, "", 0.5)
 					result = mappings[:1]
 				}
 			} else {
 				result = s.attrOutputToTopicRelations(attrOut, mappings)
-				s.saveEvidence(ctx, date, tc, result[0].TopicID, "L1_REDIS", "JIUYAN_ATTR", mappings, "", attrOut.Confidence)
+				//s.saveEvidence(ctx, date, tc, result[0].TopicID, "L1_REDIS", "JIUYAN_ATTR", mappings, "", attrOut.Confidence)
 			}
 		}
 		l1Results[tc] = result

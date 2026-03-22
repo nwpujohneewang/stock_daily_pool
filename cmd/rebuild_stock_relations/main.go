@@ -19,7 +19,7 @@ var (
 
 func main() {
 	startDate := flag.String("start", "2023-01-01", "起始日期 YYYY-MM-DD")
-	endDate := flag.String("end", "", "结束日期 YYYY-MM-DD，默认为今天")
+	endDate := flag.String("end", "2026-03-19", "结束日期 YYYY-MM-DD，默认为今天")
 	dryRun := flag.Bool("dry-run", false, "仅打印统计信息，不写入数据库")
 	flag.Parse()
 
