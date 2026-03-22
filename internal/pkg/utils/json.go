@@ -1,8 +1,12 @@
 package utils
 
-import "github.com/bytedance/sonic"
+import (
+	jsoniter "github.com/json-iterator/go"
+)
+
+var json = jsoniter.ConfigCompatibleWithStandardLibrary
 
 func ToString(val interface{}) string {
-	str, _ := sonic.MarshalString(val)
-	return str
+	str, _ := json.Marshal(val)
+	return string(str)
 }

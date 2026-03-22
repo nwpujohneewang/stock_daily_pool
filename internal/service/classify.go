@@ -50,7 +50,8 @@ func (s *ClassifyServiceImpl) ClassifyStock(ctx context.Context, tsCode string, 
 			TopicRelations: relations,
 			WeightMode:     s.weightMode,
 		}
-		attrOut, err := attribution.RunAttribution(ctx, attrInput)
+		strategy := attribution.NewStrategy(attrInput.WeightMode)
+		attrOut, err := strategy.RunAttribution(ctx, attrInput)
 		if err != nil || len(attrOut.FinalTopicIDs) == 0 {
 			s.saveEvidence(ctx, date, tsCode, relations[0].TopicID, "L1_REDIS", "JIUYAN_ATTR", relations, "", 0.5)
 			return relations, nil
@@ -92,7 +93,8 @@ func (s *ClassifyServiceImpl) ClassifyStock(ctx context.Context, tsCode string, 
 			TopicRelations: result,
 			WeightMode:     s.weightMode,
 		}
-		attrOut, err := attribution.RunAttribution(ctx, attrInput)
+		strategy := attribution.NewStrategy(attrInput.WeightMode)
+		attrOut, err := strategy.RunAttribution(ctx, attrInput)
 		if err != nil || len(attrOut.FinalTopicIDs) == 0 {
 			s.saveEvidence(ctx, date, tsCode, result[0].TopicID, "L2_PG_JIUYAN", "JIUYAN_ATTR", result, "", 0.5)
 			return result, nil
@@ -221,7 +223,8 @@ func (s *ClassifyServiceImpl) ClassifyStockBatch(ctx context.Context, tsCodes []
 				TopicRelations: mappings,
 				WeightMode:     s.weightMode,
 			}
-			attrOut, err := attribution.RunAttribution(ctx, attrInput)
+			strategy := attribution.NewStrategy(attrInput.WeightMode)
+			attrOut, err := strategy.RunAttribution(ctx, attrInput)
 			if err != nil || len(attrOut.FinalTopicIDs) == 0 {
 				if len(mappings) > 0 {
 					s.saveEvidence(ctx, date, tc, mappings[0].TopicID, "L1_REDIS", "JIUYAN_ATTR", mappings, "", 0.5)
