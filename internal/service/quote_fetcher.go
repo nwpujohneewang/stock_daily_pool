@@ -2,8 +2,9 @@ package service
 
 import (
 	"context"
-	"log"
+	"go.uber.org/zap"
 	"stock/dal/redis"
+	"stock/internal/pkg/logger"
 	"stock/model/dal_model"
 	"sync"
 	"time"
@@ -13,26 +14,26 @@ import (
 	"stock/internal/pkg/shard"
 )
 
-type QuoteFetcher struct {
+type QuoteFetcherImpl struct {
 	tushareClient *tushare.Client
 	shardCount    int
-	logger        *log.Logger
 }
+
+var _ QuoteFetcherInterface = (*QuoteFetcherImpl)(nil)
 
 func NewQuoteFetcher(
 	tushareClient *tushare.Client,
 	shardCount int,
-) *QuoteFetcher {
-	return &QuoteFetcher{
+) *QuoteFetcherImpl {
+	return &QuoteFetcherImpl{
 		tushareClient: tushareClient,
 		shardCount:    shardCount,
-		logger:        log.Default(),
 	}
 }
 
 // FetchAllQuotes 在每个10s周期调用，将全市场行情写入 Redis rt:quote:{ts_code}
 // 必须在 MonitorService.ProcessTick() 之前执行
-func (f *QuoteFetcher) FetchAllQuotes(ctx context.Context) error {
+func (f *QuoteFetcherImpl) FetchAllQuotes(ctx context.Context) error {
 	stockRepo := db.NewStockRepository()
 	stocks, err := stockRepo.GetActiveStocks(ctx)
 	if err != nil {
@@ -58,10 +59,10 @@ func (f *QuoteFetcher) FetchAllQuotes(ctx context.Context) error {
 	return nil
 }
 
-func (f *QuoteFetcher) fetchBatch(ctx context.Context, tsCodes []string) {
+func (f *QuoteFetcherImpl) fetchBatch(ctx context.Context, tsCodes []string) {
 	quotes, err := f.tushareClient.RealtimeQuote(ctx, tsCodes)
 	if err != nil {
-		f.logger.Printf("fetch quotes batch failed: %v", err)
+		logger.Error("fetch quotes batch failed: %v", zap.Error(err))
 		return
 	}
 	now := time.Now()
@@ -78,7 +79,7 @@ func (f *QuoteFetcher) fetchBatch(ctx context.Context, tsCodes []string) {
 			UpdateTime:   now,
 		}
 		if err := quoteCache.Set(ctx, stockQuote); err != nil {
-			f.logger.Printf("set quote %s failed: %v", q.TsCode, err)
+			logger.Error("set quote failed", zap.String("code", q.TsCode), zap.Error(err))
 		}
 	}
 }

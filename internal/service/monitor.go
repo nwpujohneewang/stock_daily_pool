@@ -3,42 +3,36 @@ package service
 import (
 	"context"
 	"fmt"
-	"log"
 	"stock/config"
 	"stock/dal/db"
 	"stock/dal/redis"
+	"stock/internal/external/tushare"
 	"stock/internal/pkg/limiter"
+	"stock/internal/pkg/logger"
 	"stock/internal/pkg/shard"
 	"stock/model/dal_model"
 	"sync"
 	"time"
+
+	"go.uber.org/zap"
 )
 
-type MonitorService struct {
-	quoteFetcher *QuoteFetcher
-	classifySvc  *ClassifyService
-	alertSvc     *AlertService
-	cfg          *config.MonitorConfig
-	boardRules   map[dal_model.BoardCode]*dal_model.BoardRule
-	stockStates  map[string]int
-	mu           sync.RWMutex
-	logger       *log.Logger
+type MonitorServiceImpl struct {
+	tushareClient *tushare.Client
+	cfg           *config.MonitorConfig
+	boardRules    map[dal_model.BoardCode]*dal_model.BoardRule
+	stockStates   map[string]int
+	mu            sync.RWMutex
 }
 
-func NewMonitorService(
-	quoteFetcher *QuoteFetcher,
-	classifySvc *ClassifyService,
-	alertSvc *AlertService,
-	cfg *config.MonitorConfig,
-) *MonitorService {
-	return &MonitorService{
-		quoteFetcher: quoteFetcher,
-		classifySvc:  classifySvc,
-		alertSvc:     alertSvc,
-		cfg:          cfg,
-		boardRules:   initBoardRules(),
-		stockStates:  make(map[string]int),
-		logger:       log.Default(),
+var _ MonitorServiceInterface = (*MonitorServiceImpl)(nil)
+
+func NewMonitorService(tushareClient *tushare.Client, cfg *config.MonitorConfig) *MonitorServiceImpl {
+	return &MonitorServiceImpl{
+		tushareClient: tushareClient,
+		cfg:           cfg,
+		boardRules:    initBoardRules(),
+		stockStates:   make(map[string]int),
 	}
 }
 
@@ -51,13 +45,14 @@ func initBoardRules() map[dal_model.BoardCode]*dal_model.BoardRule {
 	}
 }
 
-func (s *MonitorService) DetectBoard(tsCode string) dal_model.BoardCode {
+func (s *MonitorServiceImpl) DetectBoard(tsCode string) dal_model.BoardCode {
 	return limiter.DetectBoard(tsCode[:6])
 }
 
-func (s *MonitorService) ProcessTick(ctx context.Context, date string) error {
-	if err := s.quoteFetcher.FetchAllQuotes(ctx); err != nil {
-		s.logger.Printf("fetch quotes failed: %v", err)
+func (s *MonitorServiceImpl) ProcessTick(ctx context.Context, date string) error {
+	quoteFetcher := NewQuoteFetcher(s.tushareClient, s.cfg.ShardCount)
+	if err := quoteFetcher.FetchAllQuotes(ctx); err != nil {
+		logger.Warn("fetch quotes failed", zap.Error(err))
 	}
 
 	stockRepo := db.NewStockRepository()
@@ -86,13 +81,13 @@ func (s *MonitorService) ProcessTick(ctx context.Context, date string) error {
 	return nil
 }
 
-func (s *MonitorService) processShard(ctx context.Context, date string, batch shard.ShardBatch) {
+func (s *MonitorServiceImpl) processShard(ctx context.Context, date string, batch shard.ShardBatch) {
 	stockRepo := db.NewStockRepository()
 
 	for _, tsCode := range batch.TsCodes {
 		stock, err := stockRepo.GetByTsCode(ctx, tsCode)
 		if err != nil {
-			s.logger.Printf("get stock %s: %v", tsCode, err)
+			logger.Warn("get stock failed", zap.String("ts_code", tsCode), zap.Error(err))
 			continue
 		}
 
@@ -137,9 +132,7 @@ func (s *MonitorService) processShard(ctx context.Context, date string, batch sh
 			poolCache.AddLimitUp(ctx, date, tsCode)
 			if output.IsFirstLimitUp {
 				poolCache.SetFirstLimitTime(ctx, date, tsCode, output.FirstLimitTime.Format("15:04:05"))
-				if s.classifySvc != nil && s.alertSvc != nil {
-					s.triggerClassifyAndAlert(ctx, date, tsCode, stock.Name, quote, output)
-				}
+				s.triggerClassifyAndAlert(ctx, date, tsCode, stock.Name, quote, output)
 			}
 		} else if output.IsAbove5Pct {
 			poolCache := redis.NewPoolCache()
@@ -148,12 +141,13 @@ func (s *MonitorService) processShard(ctx context.Context, date string, batch sh
 	}
 }
 
-func (s *MonitorService) triggerClassifyAndAlert(ctx context.Context, date, tsCode, stockName string, quote *dal_model.StockQuote, output dal_model.DetectOutput) {
+func (s *MonitorServiceImpl) triggerClassifyAndAlert(ctx context.Context, date, tsCode, stockName string, quote *dal_model.StockQuote, output dal_model.DetectOutput) {
 	go func() {
 		classifyCtx := context.Background()
-		topics, err := s.classifySvc.ClassifyStock(classifyCtx, tsCode, date, quote.UpdateTime)
+		classifySvc := NewClassifyService()
+		topics, err := classifySvc.ClassifyStock(classifyCtx, tsCode, date, quote.UpdateTime)
 		if err != nil {
-			s.logger.Printf("classify stock %s: %v", tsCode, err)
+			logger.Warn("classify stock failed", zap.String("ts_code", tsCode), zap.Error(err))
 			return
 		}
 		if len(topics) == 0 {
@@ -164,7 +158,7 @@ func (s *MonitorService) triggerClassifyAndAlert(ctx context.Context, date, tsCo
 		poolRepo := db.NewPoolRepository()
 		prevPool, err := poolRepo.GetByTsCodeAndDate(classifyCtx, prevDate, tsCode)
 		if err != nil {
-			s.logger.Printf("get prev pool %s %s: %v", tsCode, prevDate, err)
+			logger.Warn("get prev pool failed", zap.String("ts_code", tsCode), zap.String("prev_date", prevDate), zap.Error(err))
 		}
 
 		var prevDayPct float64
@@ -197,8 +191,9 @@ func (s *MonitorService) triggerClassifyAndAlert(ctx context.Context, date, tsCo
 			PrevDayAbove5:  prevDayAbove5,
 			PrevDayLimitUp: prevDayLimitUp,
 		}
-		if _, err := s.alertSvc.CheckAndAlert(classifyCtx, alertInput); err != nil {
-			s.logger.Printf("check alert %s: %v", tsCode, err)
+		alertSvc := NewAlertService(s.cfg)
+		if _, err := alertSvc.CheckAndAlert(classifyCtx, alertInput); err != nil {
+			logger.Warn("check alert failed", zap.String("ts_code", tsCode), zap.Error(err))
 		}
 	}()
 }
@@ -209,7 +204,7 @@ func prevTradingDay(date string) string {
 	return t.Format("2006-01-02")
 }
 
-func (s *MonitorService) Start(ctx context.Context) {
+func (s *MonitorServiceImpl) Start(ctx context.Context) {
 	ticker := time.NewTicker(time.Duration(s.cfg.IntervalSec) * time.Second)
 	defer ticker.Stop()
 
@@ -224,13 +219,13 @@ func (s *MonitorService) Start(ctx context.Context) {
 			}
 			date := now.Format("2006-01-02")
 			if err := s.ProcessTick(ctx, date); err != nil {
-				s.logger.Printf("process tick: %v", err)
+				logger.Warn("process tick failed", zap.Error(err))
 			}
 		}
 	}
 }
 
-func (s *MonitorService) isTradingTime(t time.Time) bool {
+func (s *MonitorServiceImpl) isTradingTime(t time.Time) bool {
 	h, m := t.Hour(), t.Minute()
 	total := h*60 + m
 	start := 9*60 + 25

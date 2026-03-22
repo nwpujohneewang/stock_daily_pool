@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/spf13/viper"
@@ -161,6 +162,7 @@ var GlobalConfig *AppConfig
 func Init(cfgPath string) error {
 	viper.SetConfigFile(cfgPath)
 	viper.AutomaticEnv()
+	viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 
 	if err := viper.ReadInConfig(); err != nil {
 		return fmt.Errorf("read config: %w", err)

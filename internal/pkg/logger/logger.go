@@ -9,6 +9,36 @@ import (
 
 var Log *zap.Logger
 
+func Info(msg string, fields ...zap.Field) {
+	if Log != nil {
+		Log.Info(msg, fields...)
+	}
+}
+
+func Warn(msg string, fields ...zap.Field) {
+	if Log != nil {
+		Log.Warn(msg, fields...)
+	}
+}
+
+func Error(msg string, fields ...zap.Field) {
+	if Log != nil {
+		Log.Error(msg, fields...)
+	}
+}
+
+func Debug(msg string, fields ...zap.Field) {
+	if Log != nil {
+		Log.Debug(msg, fields...)
+	}
+}
+
+func Fatal(msg string, fields ...zap.Field) {
+	if Log != nil {
+		Log.Fatal(msg, fields...)
+	}
+}
+
 // Init initializes the global logger
 func Init(level, format, output string) error {
 	var zapLevel zapcore.Level

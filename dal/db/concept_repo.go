@@ -3,6 +3,8 @@ package db
 import (
 	"context"
 	"stock/model/dal_model"
+
+	"gorm.io/gorm/clause"
 )
 
 var _ ConceptRepository = (*ConceptRepoImpl)(nil)
@@ -13,6 +15,9 @@ type ConceptRepository interface {
 	GetByCode(ctx context.Context, conceptCode string) (*dal_model.TushareConcept, error)
 	List(ctx context.Context, keyword string, page, pageSize int) ([]dal_model.TushareConcept, int64, error)
 	GetUnmapped(ctx context.Context) ([]string, error)
+	GetConceptMappingsByTopic(ctx context.Context, topicID int64) ([]dal_model.TopicConcept, error)
+	GetConceptMapping(ctx context.Context, conceptName string) (*dal_model.TopicConcept, error)
+	CreateConceptMapping(ctx context.Context, conceptName, conceptCode string, topicID int64, matchType string) error
 }
 
 type ConceptRepoImpl struct{}
@@ -61,4 +66,34 @@ func (r ConceptRepoImpl) List(ctx context.Context, keyword string, page, pageSiz
 
 func (r ConceptRepoImpl) GetUnmapped(ctx context.Context) ([]string, error) {
 	return []string{}, nil
+}
+
+func (r ConceptRepoImpl) GetConceptMappingsByTopic(ctx context.Context, topicID int64) ([]dal_model.TopicConcept, error) {
+	var mappings []dal_model.TopicConcept
+	err := PostgresStockDB(ctx).Where("topic_id = ?", topicID).Find(&mappings).Error
+	if err != nil {
+		return nil, err
+	}
+	return mappings, nil
+}
+
+func (r ConceptRepoImpl) GetConceptMapping(ctx context.Context, conceptName string) (*dal_model.TopicConcept, error) {
+	var m dal_model.TopicConcept
+	err := PostgresStockDB(ctx).Where("concept_name = ?", conceptName).First(&m).Error
+	if err != nil {
+		return nil, err
+	}
+	return &m, nil
+}
+
+func (r ConceptRepoImpl) CreateConceptMapping(ctx context.Context, conceptName, conceptCode string, topicID int64, matchType string) error {
+	return PostgresStockDB(ctx).Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "concept_name"}, {Name: "topic_id"}},
+		DoNothing: true,
+	}).Create(&dal_model.TopicConcept{
+		ConceptName: conceptName,
+		ConceptCode: conceptCode,
+		TopicID:     topicID,
+		MatchType:   matchType,
+	}).Error
 }

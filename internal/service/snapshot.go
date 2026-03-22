@@ -3,24 +3,23 @@ package service
 import (
 	"context"
 	"fmt"
-	"log"
 	"stock/dal/redis"
 	"stock/model/dal_model"
 	"time"
 
 	"stock/dal/db"
+	"stock/internal/pkg/logger"
+
+	"go.uber.org/zap"
 )
 
-type SnapshotService struct {
-	logger     *log.Logger
-	quoteCache redis.QuoteCacheInterface
+type SnapshotServiceImpl struct {
 }
 
-func NewSnapshotService() *SnapshotService {
-	return &SnapshotService{
-		logger:     log.Default(),
-		quoteCache: redis.NewQuoteCache(),
-	}
+var _ SnapshotServiceInterface = (*SnapshotServiceImpl)(nil)
+
+func NewSnapshotService() *SnapshotServiceImpl {
+	return &SnapshotServiceImpl{}
 }
 
 type PoolStockItem struct {
@@ -51,7 +50,7 @@ type PoolSection struct {
 	Unclassified []PoolStockItem `json:"unclassified"`
 }
 
-func (s *SnapshotService) TakeSnapshot(ctx context.Context, date string) error {
+func (s *SnapshotServiceImpl) TakeSnapshot(ctx context.Context, date string) error {
 	poolCache := redis.NewPoolCache()
 	limitUpCodes, err := poolCache.GetLimitUpMembers(ctx, date)
 	if err != nil {
@@ -70,11 +69,11 @@ func (s *SnapshotService) TakeSnapshot(ctx context.Context, date string) error {
 	for _, tsCode := range limitUpCodes {
 		stock, err := stockRepo.GetByTsCode(ctx, tsCode)
 		if err != nil {
-			s.logger.Printf("get stock %s failed: %v", tsCode, err)
+			logger.Warn("get stock failed", zap.String("ts_code", tsCode), zap.Error(err))
 			continue
 		}
 
-		quote, _ := s.quoteCache.Get(ctx, tsCode)
+		quote, _ := redis.NewQuoteCache().Get(ctx, tsCode)
 		record := &dal_model.DailyStockPool{
 			Date:      t,
 			TsCode:    tsCode,
@@ -90,18 +89,18 @@ func (s *SnapshotService) TakeSnapshot(ctx context.Context, date string) error {
 			record.Amount = &quote.Amount
 		}
 		if err := poolRepo.UpsertSnapshot(ctx, record); err != nil {
-			s.logger.Printf("upsert limit up snapshot %s failed: %v", tsCode, err)
+			logger.Warn("upsert limit up snapshot failed", zap.String("ts_code", tsCode), zap.Error(err))
 		}
 	}
 
 	for _, tsCode := range above5Codes {
 		stock, err := stockRepo.GetByTsCode(ctx, tsCode)
 		if err != nil {
-			s.logger.Printf("get stock %s failed: %v", tsCode, err)
+			logger.Warn("get stock failed", zap.String("ts_code", tsCode), zap.Error(err))
 			continue
 		}
 
-		quote, _ := s.quoteCache.Get(ctx, tsCode)
+		quote, _ := redis.NewQuoteCache().Get(ctx, tsCode)
 		record := &dal_model.DailyStockPool{
 			Date:      t,
 			TsCode:    tsCode,
@@ -117,13 +116,13 @@ func (s *SnapshotService) TakeSnapshot(ctx context.Context, date string) error {
 			record.Amount = &quote.Amount
 		}
 		if err := poolRepo.UpsertSnapshot(ctx, record); err != nil {
-			s.logger.Printf("upsert above5 snapshot %s failed: %v", tsCode, err)
+			logger.Warn("upsert above5 snapshot failed", zap.String("ts_code", tsCode), zap.Error(err))
 		}
 	}
 	return nil
 }
 
-func (s *SnapshotService) GetSnapshot(ctx context.Context, date string) (*PoolSnapshot, error) {
+func (s *SnapshotServiceImpl) GetSnapshot(ctx context.Context, date string) (*PoolSnapshot, error) {
 	poolCache := redis.NewPoolCache()
 	limitUpCodes, err := poolCache.GetLimitUpMembers(ctx, date)
 	if err != nil {

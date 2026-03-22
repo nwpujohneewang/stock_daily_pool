@@ -20,7 +20,7 @@ type StockTopicRelation struct {
 
 func (StockTopicRelation) TableName() string { return "stock_topic_relations" }
 
-type TopicMapping struct {
+type TopicRelation struct {
 	TopicID      int64   `json:"topic_id"`
 	TopicName    string  `json:"topic_name"`
 	Source       string  `json:"source"`

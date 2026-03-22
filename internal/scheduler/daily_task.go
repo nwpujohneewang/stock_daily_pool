@@ -9,25 +9,12 @@ import (
 )
 
 type DailyTask struct {
-	stockService    *service.StockService
-	crawlerService  *service.CrawlerService
-	conceptService  *service.ConceptSyncService
-	snapshotService *service.SnapshotService
-	logger          *log.Logger
+	logger *log.Logger
 }
 
-func NewDailyTask(
-	stockService *service.StockService,
-	crawlerService *service.CrawlerService,
-	conceptService *service.ConceptSyncService,
-	snapshotService *service.SnapshotService,
-) *DailyTask {
+func NewDailyTask() *DailyTask {
 	return &DailyTask{
-		stockService:    stockService,
-		crawlerService:  crawlerService,
-		conceptService:  conceptService,
-		snapshotService: snapshotService,
-		logger:          log.Default(),
+		logger: log.Default(),
 	}
 }
 
@@ -54,7 +41,8 @@ func (d *DailyTask) ConceptSync(ctx context.Context) error {
 func (d *DailyTask) ClosingSnapshot(ctx context.Context) error {
 	d.logger.Println("running closing snapshot")
 	date := time.Now().Format("2006-01-02")
-	return d.snapshotService.TakeSnapshot(ctx, date)
+	svc := service.NewSnapshotService()
+	return svc.TakeSnapshot(ctx, date)
 }
 
 func (d *DailyTask) IsTradingDay() bool {

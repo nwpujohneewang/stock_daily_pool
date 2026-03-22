@@ -236,28 +236,28 @@ func (m *MockPoolRepo) GetTopicStats(ctx context.Context, date string) (map[int6
 }
 
 type MockMappingRepo struct {
-	Mappings map[int64][]dal_model.TopicMapping
+	Mappings map[int64][]dal_model.TopicRelation
 	Err      error
 }
 
 func NewMockMappingRepo() *MockMappingRepo {
 	return &MockMappingRepo{
-		Mappings: make(map[int64][]dal_model.TopicMapping),
+		Mappings: make(map[int64][]dal_model.TopicRelation),
 	}
 }
 
-func (m *MockMappingRepo) GetByTsCode(ctx context.Context, tsCode string) ([]dal_model.TopicMapping, error) {
+func (m *MockMappingRepo) GetByTsCode(ctx context.Context, tsCode string) ([]dal_model.TopicRelation, error) {
 	if m.Err != nil {
 		return nil, m.Err
 	}
-	var result []dal_model.TopicMapping
+	var result []dal_model.TopicRelation
 	for _, mappings := range m.Mappings {
 		result = append(result, mappings...)
 	}
 	return result, nil
 }
 
-func (m *MockMappingRepo) Upsert(ctx context.Context, mapping *dal_model.TopicMapping) error {
+func (m *MockMappingRepo) Upsert(ctx context.Context, mapping *dal_model.TopicRelation) error {
 	if m.Err != nil {
 		return m.Err
 	}
@@ -280,14 +280,14 @@ func (m *MockMappingRepo) Delete(ctx context.Context, tsCode string, topicID int
 	return nil
 }
 
-func (m *MockMappingRepo) GetByTopicID(ctx context.Context, topicID int64) ([]dal_model.TopicMapping, error) {
+func (m *MockMappingRepo) GetByTopicID(ctx context.Context, topicID int64) ([]dal_model.TopicRelation, error) {
 	if m.Err != nil {
 		return nil, m.Err
 	}
 	return m.Mappings[topicID], nil
 }
 
-func (m *MockMappingRepo) GetAllStockTopics(ctx context.Context) (map[int64][]dal_model.TopicMapping, error) {
+func (m *MockMappingRepo) GetAllStockTopics(ctx context.Context) (map[int64][]dal_model.TopicRelation, error) {
 	if m.Err != nil {
 		return nil, m.Err
 	}

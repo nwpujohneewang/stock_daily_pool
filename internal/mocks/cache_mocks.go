@@ -204,19 +204,19 @@ func (m *MockFocusCache) ClearFocusTopics(ctx context.Context, date string) erro
 }
 
 type MockMappingCache struct {
-	StockTopics  map[string][]dal_model.TopicMapping
+	StockTopics  map[string][]dal_model.TopicRelation
 	BindStrength map[string]int
 	Err          error
 }
 
 func NewMockMappingCache() *MockMappingCache {
 	return &MockMappingCache{
-		StockTopics:  make(map[string][]dal_model.TopicMapping),
+		StockTopics:  make(map[string][]dal_model.TopicRelation),
 		BindStrength: make(map[string]int),
 	}
 }
 
-func (m *MockMappingCache) SetStockTopics(ctx context.Context, tsCode string, mappings []dal_model.TopicMapping) error {
+func (m *MockMappingCache) SetStockTopics(ctx context.Context, tsCode string, mappings []dal_model.TopicRelation) error {
 	if m.Err != nil {
 		return m.Err
 	}
@@ -224,7 +224,7 @@ func (m *MockMappingCache) SetStockTopics(ctx context.Context, tsCode string, ma
 	return nil
 }
 
-func (m *MockMappingCache) GetStockTopics(ctx context.Context, tsCode string) ([]dal_model.TopicMapping, error) {
+func (m *MockMappingCache) GetStockTopics(ctx context.Context, tsCode string) ([]dal_model.TopicRelation, error) {
 	if m.Err != nil {
 		return nil, m.Err
 	}

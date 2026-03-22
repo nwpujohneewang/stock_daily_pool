@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 	"fmt"
-	"log"
 	"stock/model/dal_model"
 	"time"
 
@@ -11,28 +10,31 @@ import (
 	"stock/dal/db"
 	"stock/internal/external/jiuyan"
 	"stock/internal/pkg/converter"
+	"stock/internal/pkg/logger"
+
+	"go.uber.org/zap"
 )
 
-type CrawlerService struct {
-	cfg    *config.JiuyanConfig
-	logger *log.Logger
+type CrawlerServiceImpl struct {
+	cfg *config.JiuyanConfig
 }
 
-func NewCrawlerService(cfg *config.JiuyanConfig) *CrawlerService {
-	return &CrawlerService{
-		cfg:    cfg,
-		logger: log.Default(),
+var _ CrawlerServiceInterface = (*CrawlerServiceImpl)(nil)
+
+func NewCrawlerService(cfg *config.JiuyanConfig) *CrawlerServiceImpl {
+	return &CrawlerServiceImpl{
+		cfg: cfg,
 	}
 }
 
-func (s *CrawlerService) CrawlDate(ctx context.Context, date string) error {
+func (s *CrawlerServiceImpl) CrawlDate(ctx context.Context, date string) error {
 	data, err := jiuyan.FetchFieldData(ctx, date)
 	if err != nil {
 		return fmt.Errorf("fetch jiuyan data: %w", err)
 	}
 
 	topicRepo := db.NewTopicRepository()
-	mappingRepo := db.NewMappingRepository()
+	mappingRepo := db.NewStockTopicRelationRepository()
 	synonymRepo := db.NewSynonymRepository()
 
 	for _, field := range data {
@@ -52,7 +54,7 @@ func (s *CrawlerService) CrawlDate(ctx context.Context, date string) error {
 			FirstSeenDate: &now,
 		}
 		if err := topicRepo.Upsert(ctx, topic); err != nil {
-			s.logger.Printf("upsert topic %s failed: %v", topicName, err)
+			logger.Warn("upsert topic failed", zap.String("topic", topicName), zap.Error(err))
 			continue
 		}
 
@@ -76,14 +78,17 @@ func (s *CrawlerService) CrawlDate(ctx context.Context, date string) error {
 				FirstSeenDate: &now,
 			}
 			if err := mappingRepo.Upsert(ctx, mapping); err != nil {
-				s.logger.Printf("upsert mapping %s -> %d failed: %v", tsCode, topicID, err)
+				logger.Warn("upsert mapping failed",
+					zap.String("ts_code", tsCode),
+					zap.Int64("topic_id", topicID),
+					zap.Error(err))
 			}
 		}
 	}
 	return nil
 }
 
-func (s *CrawlerService) CrawlHistory(ctx context.Context, startDate string) error {
+func (s *CrawlerServiceImpl) CrawlHistory(ctx context.Context, startDate string) error {
 	start, err := time.Parse("2006-01-02", startDate)
 	if err != nil {
 		return fmt.Errorf("parse start date: %w", err)
@@ -95,13 +100,13 @@ func (s *CrawlerService) CrawlHistory(ctx context.Context, startDate string) err
 		}
 		dateStr := d.Format("2006-01-02")
 		if err := s.CrawlDate(ctx, dateStr); err != nil {
-			s.logger.Printf("crawl date %s failed: %v", dateStr, err)
+			logger.Warn("crawl date failed", zap.String("date", dateStr), zap.Error(err))
 		}
 	}
 	return nil
 }
 
-func (s *CrawlerService) CrawlToday(ctx context.Context) error {
+func (s *CrawlerServiceImpl) CrawlToday(ctx context.Context) error {
 	yesterday := time.Now().AddDate(0, 0, -1)
 	dateStr := yesterday.Format("2006-01-02")
 	return s.CrawlDate(ctx, dateStr)

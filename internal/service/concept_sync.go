@@ -3,31 +3,33 @@ package service
 import (
 	"context"
 	"fmt"
-	"log"
 
 	"stock/config"
 	"stock/dal/db"
 	"stock/internal/external/tushare"
+	"stock/internal/pkg/logger"
+
+	"go.uber.org/zap"
 )
 
-type ConceptSyncService struct {
+type ConceptSyncServiceImpl struct {
 	tushareClient *tushare.Client
 	cfg           *config.TushareConfig
-	logger        *log.Logger
 }
+
+var _ ConceptSyncServiceInterface = (*ConceptSyncServiceImpl)(nil)
 
 func NewConceptSyncService(
 	tushareClient *tushare.Client,
 	cfg *config.TushareConfig,
-) *ConceptSyncService {
-	return &ConceptSyncService{
+) *ConceptSyncServiceImpl {
+	return &ConceptSyncServiceImpl{
 		tushareClient: tushareClient,
 		cfg:           cfg,
-		logger:        log.Default(),
 	}
 }
 
-func (s *ConceptSyncService) SyncAll(ctx context.Context) error {
+func (s *ConceptSyncServiceImpl) SyncAll(ctx context.Context) error {
 	conceptRepo := db.NewConceptRepository()
 	conceptDetailRepo := db.NewConceptDetailRepository()
 
@@ -38,33 +40,35 @@ func (s *ConceptSyncService) SyncAll(ctx context.Context) error {
 
 	for _, c := range concepts {
 		if err := conceptRepo.Upsert(ctx, c.Name, c.ID); err != nil {
-			s.logger.Printf("upsert concept %s failed: %v", c.Name, err)
+			logger.Warn("upsert concept failed", zap.String("concept", c.Name), zap.Error(err))
 			continue
 		}
 
 		details, err := s.tushareClient.ConceptDetail(ctx, c.ID)
 		if err != nil {
-			s.logger.Printf("fetch concept detail %s failed: %v", c.ID, err)
+			logger.Warn("fetch concept detail failed", zap.String("concept_id", c.ID), zap.Error(err))
 			continue
 		}
 
 		for _, d := range details {
 			if err := conceptDetailRepo.Upsert(ctx, d.TsCode, d.ConceptName, d.ID); err != nil {
-				s.logger.Printf("upsert concept detail %s -> %s failed: %v", d.TsCode, d.ConceptName, err)
+				logger.Warn("upsert concept detail failed",
+					zap.String("ts_code", d.TsCode),
+					zap.String("concept", d.ConceptName),
+					zap.Error(err))
 			}
 		}
 	}
 	return nil
 }
 
-func (s *ConceptSyncService) SyncIncremental(ctx context.Context) error {
+func (s *ConceptSyncServiceImpl) SyncIncremental(ctx context.Context) error {
 	return s.SyncAll(ctx)
 }
 
-func (s *ConceptSyncService) BuildMappings(ctx context.Context) error {
+func (s *ConceptSyncServiceImpl) BuildMappings(ctx context.Context) error {
 	conceptRepo := db.NewConceptRepository()
 	topicRepo := db.NewTopicRepository()
-	mappingRepo := db.NewMappingRepository()
 
 	concepts, err := conceptRepo.GetAll(ctx)
 	if err != nil {
@@ -83,15 +87,18 @@ func (s *ConceptSyncService) BuildMappings(ctx context.Context) error {
 
 	for _, c := range concepts {
 		if topicID, ok := topicMap[c.ConceptName]; ok {
-			if err := mappingRepo.CreateConceptMapping(ctx, c.ConceptName, c.ConceptCode, topicID, "exact"); err != nil {
-				s.logger.Printf("create concept mapping %s -> %d failed: %v", c.ConceptName, topicID, err)
+			if err := conceptRepo.CreateConceptMapping(ctx, c.ConceptName, c.ConceptCode, topicID, "exact"); err != nil {
+				logger.Warn("create concept mapping failed",
+					zap.String("concept", c.ConceptName),
+					zap.Int64("topic_id", topicID),
+					zap.Error(err))
 			}
 		}
 	}
 	return nil
 }
 
-func (s *ConceptSyncService) GetUnmappedConcepts(ctx context.Context) ([]string, error) {
+func (s *ConceptSyncServiceImpl) GetUnmappedConcepts(ctx context.Context) ([]string, error) {
 	conceptRepo := db.NewConceptRepository()
 	return conceptRepo.GetUnmapped(ctx)
 }

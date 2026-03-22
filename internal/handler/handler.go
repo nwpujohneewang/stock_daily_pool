@@ -98,21 +98,21 @@ func (h *PoolHandler) GetAbove5(c *gin.Context) {
 }
 
 type ReclassifyResult struct {
-	TsCode        string                   `json:"ts_code"`
-	Name          string                   `json:"name"`
-	Price         float64                  `json:"price"`
-	PreClose      float64                  `json:"pre_close"`
-	ChangePct     float64                  `json:"change_pct"`
-	PoolType      int                      `json:"pool_type"`
-	LimitUpPrice  float64                  `json:"limit_up_price,omitempty"`
-	IsLimitUp     bool                     `json:"is_limit_up"`
-	IsAbove5Pct   bool                     `json:"is_above_5pct"`
-	BoardCode     string                   `json:"board_code"`
-	Topics        []dal_model.TopicMapping `json:"topics,omitempty"`
-	ClassifyLayer string                   `json:"classify_layer,omitempty"`
-	Confidence    float64                  `json:"confidence,omitempty"`
-	Skipped       bool                     `json:"skipped"`
-	SkipReason    string                   `json:"skip_reason,omitempty"`
+	TsCode        string                    `json:"ts_code"`
+	Name          string                    `json:"name"`
+	Price         float64                   `json:"price"`
+	PreClose      float64                   `json:"pre_close"`
+	ChangePct     float64                   `json:"change_pct"`
+	PoolType      int                       `json:"pool_type"`
+	LimitUpPrice  float64                   `json:"limit_up_price,omitempty"`
+	IsLimitUp     bool                      `json:"is_limit_up"`
+	IsAbove5Pct   bool                      `json:"is_above_5pct"`
+	BoardCode     string                    `json:"board_code"`
+	Topics        []dal_model.TopicRelation `json:"topics,omitempty"`
+	ClassifyLayer string                    `json:"classify_layer,omitempty"`
+	Confidence    float64                   `json:"confidence,omitempty"`
+	Skipped       bool                      `json:"skipped"`
+	SkipReason    string                    `json:"skip_reason,omitempty"`
 }
 
 func (h *PoolHandler) ReclassifyByDate(c *gin.Context) {

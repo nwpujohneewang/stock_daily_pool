@@ -23,7 +23,7 @@ func (h *ConceptHandler) ListByTopic(c *gin.Context) {
 		return
 	}
 
-	mappings, err := db.NewMappingRepository().GetConceptMappingsByTopic(ctx, topicID)
+	mappings, err := db.NewConceptRepository().GetConceptMappingsByTopic(ctx, topicID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, Fail(500, err.Error()))
 		return
@@ -46,7 +46,6 @@ func (h *ConceptHandler) ListMappings(c *gin.Context) {
 	}
 
 	conceptRepo := db.NewConceptRepository()
-	mappingRepo := db.NewMappingRepository()
 	topicRepo := db.NewTopicRepository()
 
 	concepts, total, err := conceptRepo.List(ctx, keyword, page, pageSize)
@@ -64,7 +63,7 @@ func (h *ConceptHandler) ListMappings(c *gin.Context) {
 
 	var results []ConceptWithMapping
 	for _, concept := range concepts {
-		mapping, err := mappingRepo.GetConceptMapping(ctx, concept.ConceptName)
+		mapping, err := conceptRepo.GetConceptMapping(ctx, concept.ConceptName)
 		cm := ConceptWithMapping{TushareConcept: concept}
 		if err == nil && mapping != nil {
 			cm.IsMapped = true
@@ -96,7 +95,7 @@ func (h *ConceptHandler) CreateMapping(c *gin.Context) {
 		return
 	}
 
-	if err := db.NewMappingRepository().CreateConceptMapping(ctx, req.ConceptName, req.ConceptCode, req.TopicID, "manual"); err != nil {
+	if err := db.NewConceptRepository().CreateConceptMapping(ctx, req.ConceptName, req.ConceptCode, req.TopicID, "manual"); err != nil {
 		c.JSON(http.StatusInternalServerError, Fail(500, err.Error()))
 		return
 	}

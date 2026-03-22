@@ -2,32 +2,32 @@ package scheduler
 
 import (
 	"context"
-	"log"
 	"stock/dal/redis"
 	"time"
 
 	"github.com/robfig/cron/v3"
 	"stock/config"
 	"stock/dal/db"
+	"stock/internal/pkg/logger"
 	"stock/internal/service"
+
+	"go.uber.org/zap"
 )
 
 type Scheduler struct {
 	cron           *cron.Cron
 	cfg            *config.SchedulerConfig
-	monitorService *service.MonitorService
-	logger         *log.Logger
+	monitorService service.MonitorServiceInterface
 }
 
 func NewScheduler(
 	cfg *config.SchedulerConfig,
-	monitorService *service.MonitorService,
+	monitorService service.MonitorServiceInterface,
 ) *Scheduler {
 	return &Scheduler{
 		cron:           cron.New(cron.WithSeconds()),
 		cfg:            cfg,
 		monitorService: monitorService,
-		logger:         log.Default(),
 	}
 }
 
@@ -58,7 +58,7 @@ func (s *Scheduler) preMarketInit() {
 		return
 	}
 
-	s.logger.Printf("running pre-market init for %s", date)
+	logger.Info("running pre-market init", zap.String("date", date))
 
 	poolCache := redis.NewPoolCache()
 	_ = poolCache.RemoveLimitUp(ctx, getPrevDate(date), "")
@@ -67,11 +67,11 @@ func (s *Scheduler) preMarketInit() {
 	stockRepo := db.NewStockRepository()
 	stocks, err := stockRepo.GetActiveStocks(ctx)
 	if err != nil {
-		s.logger.Printf("get active stocks: %v", err)
+		logger.Warn("get active stocks failed", zap.Error(err))
 		return
 	}
 
-	s.logger.Printf("loaded %d active stocks", len(stocks))
+	logger.Info("loaded active stocks", zap.Int("count", len(stocks)))
 }
 
 func (s *Scheduler) realtimeCollect() {
@@ -88,7 +88,7 @@ func (s *Scheduler) realtimeCollect() {
 
 	date := now.Format("2006-01-02")
 	if err := s.monitorService.ProcessTick(ctx, date); err != nil {
-		s.logger.Printf("realtime collect: %v", err)
+		logger.Warn("realtime collect failed", zap.Error(err))
 	}
 }
 
@@ -101,11 +101,11 @@ func (s *Scheduler) isWithinTradingWindow(t time.Time) bool {
 }
 
 func (s *Scheduler) jiuyanSync() {
-	s.logger.Println("jiuyan sync task")
+	logger.Info("jiuyan sync task")
 }
 
 func (s *Scheduler) conceptSync() {
-	s.logger.Println("concept sync task")
+	logger.Info("concept sync task")
 }
 
 func (s *Scheduler) closingSnapshot() {
@@ -115,19 +115,19 @@ func (s *Scheduler) closingSnapshot() {
 		return
 	}
 
-	s.logger.Printf("closing snapshot for %s", date)
+	logger.Info("closing snapshot", zap.String("date", date))
 }
 
 func (s *Scheduler) cacheWarmup() {
-	s.logger.Println("cache warmup task")
+	logger.Info("cache warmup task")
 }
 
 func (s *Scheduler) historyCleanup() {
-	s.logger.Println("history cleanup task")
+	logger.Info("history cleanup task")
 }
 
 func (s *Scheduler) llmBatch() {
-	s.logger.Println("LLM batch task")
+	logger.Info("LLM batch task")
 }
 
 func isTradingDay(t time.Time) bool {

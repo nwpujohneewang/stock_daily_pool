@@ -9,24 +9,24 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-type MappingCacheInterface interface {
-	GetStockTopics(ctx context.Context, tsCode string) ([]dal_model.TopicMapping, error)
-	GetStockTopicsBatch(ctx context.Context, tsCodes []string) (map[string][]dal_model.TopicMapping, error)
-	SetStockTopics(ctx context.Context, tsCode string, mappings []dal_model.TopicMapping) error
+type StockTopicsRelationCacheInterface interface {
+	GetStockTopics(ctx context.Context, tsCode string) ([]dal_model.TopicRelation, error)
+	GetStockTopicsBatch(ctx context.Context, tsCodes []string) (map[string][]dal_model.TopicRelation, error)
+	SetStockTopics(ctx context.Context, tsCode string, mappings []dal_model.TopicRelation) error
 	GetBindStrength(ctx context.Context, tsCode string, topicID int64) (int, error)
 	SetBindStrength(ctx context.Context, tsCode string, topicID int64, count int) error
 	GetAllBindStrength(ctx context.Context, tsCode string) (map[int64]int, error)
 }
 
-var _ MappingCacheInterface = (*MappingCacheImpl)(nil)
+var _ StockTopicsRelationCacheInterface = (*StockTopicsRelationCacheInterfaceImpl)(nil)
 
-type MappingCacheImpl struct{}
+type StockTopicsRelationCacheInterfaceImpl struct{}
 
-func NewMappingCache() *MappingCacheImpl {
-	return &MappingCacheImpl{}
+func NewStockTopicsRelationCache() *StockTopicsRelationCacheInterfaceImpl {
+	return &StockTopicsRelationCacheInterfaceImpl{}
 }
 
-func (c MappingCacheImpl) GetStockTopics(ctx context.Context, tsCode string) ([]dal_model.TopicMapping, error) {
+func (c StockTopicsRelationCacheInterfaceImpl) GetStockTopics(ctx context.Context, tsCode string) ([]dal_model.TopicRelation, error) {
 	key := "cache:stock_topics"
 	data, err := RedisClient(ctx).HGet(ctx, key, tsCode).Result()
 	if err == redis.Nil {
@@ -36,14 +36,14 @@ func (c MappingCacheImpl) GetStockTopics(ctx context.Context, tsCode string) ([]
 		return nil, err
 	}
 
-	var mappings []dal_model.TopicMapping
+	var mappings []dal_model.TopicRelation
 	if err := json.Unmarshal([]byte(data), &mappings); err != nil {
 		return nil, err
 	}
 	return mappings, nil
 }
 
-func (c MappingCacheImpl) GetStockTopicsBatch(ctx context.Context, tsCodes []string) (map[string][]dal_model.TopicMapping, error) {
+func (c StockTopicsRelationCacheInterfaceImpl) GetStockTopicsBatch(ctx context.Context, tsCodes []string) (map[string][]dal_model.TopicRelation, error) {
 	if len(tsCodes) == 0 {
 		return nil, nil
 	}
@@ -55,13 +55,13 @@ func (c MappingCacheImpl) GetStockTopicsBatch(ctx context.Context, tsCodes []str
 	}
 	pipe.Exec(ctx)
 
-	result := make(map[string][]dal_model.TopicMapping, len(tsCodes))
+	result := make(map[string][]dal_model.TopicRelation, len(tsCodes))
 	for i, tc := range tsCodes {
 		data, err := cmds[i].Result()
 		if err != nil || data == "" {
 			continue
 		}
-		var mappings []dal_model.TopicMapping
+		var mappings []dal_model.TopicRelation
 		if err := json.Unmarshal([]byte(data), &mappings); err == nil {
 			result[tc] = mappings
 		}
@@ -69,7 +69,7 @@ func (c MappingCacheImpl) GetStockTopicsBatch(ctx context.Context, tsCodes []str
 	return result, nil
 }
 
-func (c MappingCacheImpl) SetStockTopics(ctx context.Context, tsCode string, mappings []dal_model.TopicMapping) error {
+func (c StockTopicsRelationCacheInterfaceImpl) SetStockTopics(ctx context.Context, tsCode string, mappings []dal_model.TopicRelation) error {
 	key := "cache:stock_topics"
 	data, err := json.Marshal(mappings)
 	if err != nil {
@@ -78,7 +78,7 @@ func (c MappingCacheImpl) SetStockTopics(ctx context.Context, tsCode string, map
 	return RedisClient(ctx).HSet(ctx, key, tsCode, data).Err()
 }
 
-func (c MappingCacheImpl) GetBindStrength(ctx context.Context, tsCode string, topicID int64) (int, error) {
+func (c StockTopicsRelationCacheInterfaceImpl) GetBindStrength(ctx context.Context, tsCode string, topicID int64) (int, error) {
 	key := "cache:bind_strength"
 	field := fmt.Sprintf("%s:%d", tsCode, topicID)
 	data, err := RedisClient(ctx).HGet(ctx, key, field).Int()
@@ -88,13 +88,13 @@ func (c MappingCacheImpl) GetBindStrength(ctx context.Context, tsCode string, to
 	return data, err
 }
 
-func (c MappingCacheImpl) SetBindStrength(ctx context.Context, tsCode string, topicID int64, count int) error {
+func (c StockTopicsRelationCacheInterfaceImpl) SetBindStrength(ctx context.Context, tsCode string, topicID int64, count int) error {
 	key := "cache:bind_strength"
 	field := fmt.Sprintf("%s:%d", tsCode, topicID)
 	return RedisClient(ctx).HSet(ctx, key, field, count).Err()
 }
 
-func (c MappingCacheImpl) GetAllBindStrength(ctx context.Context, tsCode string) (map[int64]int, error) {
+func (c StockTopicsRelationCacheInterfaceImpl) GetAllBindStrength(ctx context.Context, tsCode string) (map[int64]int, error) {
 	key := "cache:bind_strength"
 	pattern := fmt.Sprintf("%s:*", tsCode)
 	keys, err := RedisClient(ctx).Keys(ctx, pattern).Result()

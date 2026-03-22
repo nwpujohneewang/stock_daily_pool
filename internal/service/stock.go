@@ -3,28 +3,30 @@ package service
 import (
 	"context"
 	"fmt"
-	"log"
 	"stock/model/dal_model"
 	"time"
 
 	"stock/dal/db"
 	"stock/internal/external/tushare"
 	"stock/internal/pkg/limiter"
+	"stock/internal/pkg/logger"
+
+	"go.uber.org/zap"
 )
 
-type StockService struct {
+type StockServiceImpl struct {
 	tushareClient *tushare.Client
-	logger        *log.Logger
 }
 
-func NewStockService(tushareClient *tushare.Client) *StockService {
-	return &StockService{
+var _ StockServiceInterface = (*StockServiceImpl)(nil)
+
+func NewStockService(tushareClient *tushare.Client) *StockServiceImpl {
+	return &StockServiceImpl{
 		tushareClient: tushareClient,
-		logger:        log.Default(),
 	}
 }
 
-func (s *StockService) SyncStockBasic(ctx context.Context) error {
+func (s *StockServiceImpl) SyncStockBasic(ctx context.Context) error {
 	tushareStocks, err := s.tushareClient.StockBasic(ctx)
 	if err != nil {
 		return fmt.Errorf("fetch stock basic: %w", err)
@@ -32,11 +34,13 @@ func (s *StockService) SyncStockBasic(ctx context.Context) error {
 
 	stMap, err := s.tushareClient.StockST(ctx)
 	if err != nil {
-		s.logger.Printf("fetch stock_st failed: %v, proceeding without ST info", err)
+		logger.Warn("fetch stock_st failed, proceeding without ST info", zap.Error(err))
 		stMap = make(map[string]bool)
 	}
 
-	s.logger.Printf("共获取 %d 只股票，ST 股票 %d 只\n", len(tushareStocks), len(stMap))
+	logger.Info("共获取股票信息",
+		zap.Int("total", len(tushareStocks)),
+		zap.Int("st_count", len(stMap)))
 
 	stockRepo := db.NewStockRepository()
 	records := make([]dal_model.StockBasicInfo, 0, len(tushareStocks))
@@ -67,30 +71,30 @@ func (s *StockService) SyncStockBasic(ctx context.Context) error {
 			stCodes = append(stCodes, tsCode)
 		}
 		if err = stockRepo.SetSTBatch(ctx, stCodes, true); err != nil {
-			s.logger.Printf("set ST batch failed: %v", err)
+			logger.Warn("set ST batch failed", zap.Error(err))
 		}
 	}
 
 	return nil
 }
 
-func (s *StockService) detectBoard(symbol string) string {
+func (s *StockServiceImpl) detectBoard(symbol string) string {
 	return string(limiter.DetectBoard(symbol))
 }
 
-func (s *StockService) GetStock(ctx context.Context, tsCode string) (*dal_model.StockBasicInfo, error) {
+func (s *StockServiceImpl) GetStock(ctx context.Context, tsCode string) (*dal_model.StockBasicInfo, error) {
 	return db.NewStockRepository().GetByTsCode(ctx, tsCode)
 }
 
-func (s *StockService) GetActiveStocks(ctx context.Context) ([]dal_model.StockBasicInfo, error) {
+func (s *StockServiceImpl) GetActiveStocks(ctx context.Context) ([]dal_model.StockBasicInfo, error) {
 	return db.NewStockRepository().GetActiveStocks(ctx)
 }
 
-func (s *StockService) GetStocksByBoard(ctx context.Context, boardCode string) ([]dal_model.StockBasicInfo, error) {
+func (s *StockServiceImpl) GetStocksByBoard(ctx context.Context, boardCode string) ([]dal_model.StockBasicInfo, error) {
 	return db.NewStockRepository().GetByBoardCode(ctx, boardCode)
 }
 
-func (s *StockService) LoadBoardRules(ctx context.Context) (map[dal_model.BoardCode]*dal_model.BoardRule, error) {
+func (s *StockServiceImpl) LoadBoardRules(ctx context.Context) (map[dal_model.BoardCode]*dal_model.BoardRule, error) {
 	boardRepo := db.NewBoardRepository()
 	boards, err := boardRepo.GetAll(ctx)
 	if err != nil {

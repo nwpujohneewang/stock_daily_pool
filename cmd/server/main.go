@@ -41,18 +41,7 @@ func main() {
 	// Initialize external clients
 	tushareClient := tushare.NewClient(&cfg.Tushare, cfg.Retry)
 
-	quoteFetcher := service.NewQuoteFetcher(tushareClient, cfg.Monitor.ShardCount)
-
-	classifySvc := service.NewClassifyService()
-
-	alertSvc := service.NewAlertService(&cfg.Monitor)
-
-	monitorService := service.NewMonitorService(
-		quoteFetcher,
-		classifySvc,
-		alertSvc,
-		&cfg.Monitor,
-	)
+	monitorService := service.NewMonitorService(tushareClient, &cfg.Monitor)
 
 	hub := ws.NewHub()
 	go hub.Run(ctx)

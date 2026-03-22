@@ -11,21 +11,15 @@ import (
 	"stock/dal/db"
 )
 
-type AlertService struct {
-	cfg    *config.MonitorConfig
-	logger *logger
+type AlertServiceImpl struct {
+	cfg *config.MonitorConfig
 }
 
-type logger struct{}
+var _ AlertServiceInterface = (*AlertServiceImpl)(nil)
 
-func (l logger) Error(msg string, keys ...interface{}) { fmt.Println("[ERROR]", msg, keys) }
-func (l logger) Warn(msg string, keys ...interface{})  { fmt.Println("[WARN]", msg, keys) }
-func (l logger) Info(msg string, keys ...interface{})  { fmt.Println("[INFO]", msg, keys) }
-
-func NewAlertService(cfg *config.MonitorConfig) *AlertService {
-	return &AlertService{
-		cfg:    cfg,
-		logger: &logger{},
+func NewAlertService(cfg *config.MonitorConfig) *AlertServiceImpl {
+	return &AlertServiceImpl{
+		cfg: cfg,
 	}
 }
 
@@ -51,7 +45,7 @@ type AlertCheckOutput struct {
 	Message        string
 }
 
-func (s *AlertService) CheckAndAlert(ctx context.Context, input AlertCheckInput) (*AlertCheckOutput, error) {
+func (s *AlertServiceImpl) CheckAndAlert(ctx context.Context, input AlertCheckInput) (*AlertCheckOutput, error) {
 	focusedTopicID, focusedTopicName := s.checkFocus(ctx, input)
 	if focusedTopicID == 0 {
 		return &AlertCheckOutput{ShouldAlert: false, RejectReason: "topic_not_focused"}, nil
@@ -108,7 +102,7 @@ func (s *AlertService) CheckAndAlert(ctx context.Context, input AlertCheckInput)
 	}, nil
 }
 
-func (s *AlertService) checkFocus(ctx context.Context, input AlertCheckInput) (int64, string) {
+func (s *AlertServiceImpl) checkFocus(ctx context.Context, input AlertCheckInput) (int64, string) {
 	focusCache := redis.NewFocusCache()
 	for i, tid := range input.TopicIDs {
 		isFocused, err := focusCache.IsFocused(ctx, input.Date, tid)
@@ -119,12 +113,12 @@ func (s *AlertService) checkFocus(ctx context.Context, input AlertCheckInput) (i
 	return 0, ""
 }
 
-func (s *AlertService) GetTodayAlerts(ctx context.Context, date string) ([]dal_model.StrategyAlert, error) {
+func (s *AlertServiceImpl) GetTodayAlerts(ctx context.Context, date string) ([]dal_model.StrategyAlert, error) {
 	alertRepo := db.NewAlertRepository()
 	return alertRepo.GetByDate(ctx, date)
 }
 
-func (s *AlertService) GetHistoryAlerts(ctx context.Context, startDate, endDate string, topicID *int64, page, pageSize int) ([]dal_model.StrategyAlert, int64, error) {
+func (s *AlertServiceImpl) GetHistoryAlerts(ctx context.Context, startDate, endDate string, topicID *int64, page, pageSize int) ([]dal_model.StrategyAlert, int64, error) {
 	alertRepo := db.NewAlertRepository()
 	return alertRepo.GetHistory(ctx, startDate, endDate, topicID, page, pageSize)
 }

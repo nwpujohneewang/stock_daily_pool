@@ -2,16 +2,17 @@ package scheduler
 
 import (
 	"context"
-	"log"
 	"time"
 
+	"stock/internal/pkg/logger"
 	"stock/internal/service"
+
+	"go.uber.org/zap"
 )
 
 type Ticker struct {
 	cron           *cronWrapper
-	monitorService *service.MonitorService
-	logger         *log.Logger
+	monitorService service.MonitorServiceInterface
 	intervalSec    int
 }
 
@@ -23,11 +24,10 @@ func (c *cronWrapper) Now() time.Time {
 
 func NewTicker(
 	intervalSec int,
-	monitorService *service.MonitorService,
+	monitorService service.MonitorServiceInterface,
 ) *Ticker {
 	return &Ticker{
 		monitorService: monitorService,
-		logger:         log.Default(),
 		intervalSec:    intervalSec,
 	}
 }
@@ -45,7 +45,7 @@ func (t *Ticker) Start(ctx context.Context) error {
 				continue
 			}
 			if err := t.monitorService.ProcessTick(ctx, time.Now().Format("2006-01-02")); err != nil {
-				t.logger.Printf("process tick failed: %v", err)
+				logger.Warn("process tick failed", zap.Error(err))
 			}
 		}
 	}

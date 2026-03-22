@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 	"encoding/json"
-	"log"
 	"stock/dal/db"
 	"stock/dal/redis"
 	"stock/internal/pkg/attribution"
@@ -11,59 +10,58 @@ import (
 	"time"
 )
 
-type ClassifyService struct {
-	logger     *log.Logger
+type ClassifyServiceImpl struct {
 	weightMode attribution.WeightMode
 }
 
-func NewClassifyService() *ClassifyService {
-	return &ClassifyService{
-		logger:     log.Default(),
+var _ ClassifyServiceInterface = (*ClassifyServiceImpl)(nil)
+
+func NewClassifyService() *ClassifyServiceImpl {
+	return &ClassifyServiceImpl{
 		weightMode: attribution.WeightModeNormal,
 	}
 }
 
-func NewClassifyServiceWithMode(mode attribution.WeightMode) *ClassifyService {
-	return &ClassifyService{
-		logger:     log.Default(),
+func NewClassifyServiceWithMode(mode attribution.WeightMode) *ClassifyServiceImpl {
+	return &ClassifyServiceImpl{
 		weightMode: mode,
 	}
 }
 
-func (s *ClassifyService) ClassifyStock(ctx context.Context, tsCode string, date string, quoteTime time.Time) ([]dal_model.TopicMapping, error) {
+func (s *ClassifyServiceImpl) ClassifyStock(ctx context.Context, tsCode string, date string, quoteTime time.Time) ([]dal_model.TopicRelation, error) {
 
-	mappingCache := redis.NewMappingCache()
-	mappings, err := mappingCache.GetStockTopics(ctx, tsCode)
+	stockTopicRelationCache := redis.NewStockTopicsRelationCache()
+	relations, err := stockTopicRelationCache.GetStockTopics(ctx, tsCode)
 	if err != nil {
 		return nil, err
 	}
 
-	if mappings != nil && len(mappings) > 0 {
-		for _, m := range mappings {
+	if relations != nil && len(relations) > 0 {
+		for _, m := range relations {
 			if m.Source == "manual" {
-				s.saveEvidence(ctx, date, tsCode, m.TopicID, "L1_REDIS", "MANUAL", mappings, "", 1.0)
-				return []dal_model.TopicMapping{m}, nil
+				s.saveEvidence(ctx, date, tsCode, m.TopicID, "L1_REDIS", "MANUAL", relations, "", 1.0)
+				return []dal_model.TopicRelation{m}, nil
 			}
 		}
 		attrInput := attribution.AttributionInput{
-			TsCode:            tsCode,
-			QuoteTime:         quoteTime,
-			Date:              date,
-			CandidateMappings: mappings,
-			WeightMode:        s.weightMode,
+			TsCode:         tsCode,
+			QuoteTime:      quoteTime,
+			Date:           date,
+			TopicRelations: relations,
+			WeightMode:     s.weightMode,
 		}
 		attrOut, err := attribution.RunAttribution(ctx, attrInput)
 		if err != nil || len(attrOut.FinalTopicIDs) == 0 {
-			s.saveEvidence(ctx, date, tsCode, mappings[0].TopicID, "L1_REDIS", "JIUYAN_ATTR", mappings, "", 0.5)
-			return mappings, nil
+			s.saveEvidence(ctx, date, tsCode, relations[0].TopicID, "L1_REDIS", "JIUYAN_ATTR", relations, "", 0.5)
+			return relations, nil
 		}
-		result := s.attrOutputToTopicMappings(attrOut, mappings)
+		result := s.attrOutputToTopicRelations(attrOut, relations)
 		confidence := attrOut.Confidence
-		s.saveEvidence(ctx, date, tsCode, result[0].TopicID, "L1_REDIS", "JIUYAN_ATTR", mappings, "", confidence)
+		s.saveEvidence(ctx, date, tsCode, result[0].TopicID, "L1_REDIS", "JIUYAN_ATTR", relations, "", confidence)
 		return result, nil
 	}
 
-	mappingRepo := db.NewMappingRepository()
+	mappingRepo := db.NewStockTopicRelationRepository()
 	pgMappings, err := mappingRepo.GetByTsCode(ctx, tsCode)
 	if err != nil {
 		return nil, err
@@ -71,14 +69,14 @@ func (s *ClassifyService) ClassifyStock(ctx context.Context, tsCode string, date
 
 	if len(pgMappings) > 0 {
 		topicRepo := db.NewTopicRepository()
-		result := make([]dal_model.TopicMapping, len(pgMappings))
+		result := make([]dal_model.TopicRelation, len(pgMappings))
 		for i, m := range pgMappings {
 			topic, _ := topicRepo.GetByID(ctx, m.TopicID)
 			topicName := ""
 			if topic != nil {
 				topicName = topic.Name
 			}
-			result[i] = dal_model.TopicMapping{
+			result[i] = dal_model.TopicRelation{
 				TopicID:      m.TopicID,
 				TopicName:    topicName,
 				Source:       m.Source,
@@ -86,20 +84,20 @@ func (s *ClassifyService) ClassifyStock(ctx context.Context, tsCode string, date
 				LastSeenDate: m.LastSeenDate.Format("2006-01-02"),
 			}
 		}
-		mappingCache.SetStockTopics(ctx, tsCode, result)
+		stockTopicRelationCache.SetStockTopics(ctx, tsCode, result)
 		attrInput := attribution.AttributionInput{
-			TsCode:            tsCode,
-			QuoteTime:         quoteTime,
-			Date:              date,
-			CandidateMappings: result,
-			WeightMode:        s.weightMode,
+			TsCode:         tsCode,
+			QuoteTime:      quoteTime,
+			Date:           date,
+			TopicRelations: result,
+			WeightMode:     s.weightMode,
 		}
 		attrOut, err := attribution.RunAttribution(ctx, attrInput)
 		if err != nil || len(attrOut.FinalTopicIDs) == 0 {
 			s.saveEvidence(ctx, date, tsCode, result[0].TopicID, "L2_PG_JIUYAN", "JIUYAN_ATTR", result, "", 0.5)
 			return result, nil
 		}
-		attrResult := s.attrOutputToTopicMappings(attrOut, result)
+		attrResult := s.attrOutputToTopicRelations(attrOut, result)
 		confidence := attrOut.Confidence
 		s.saveEvidence(ctx, date, tsCode, attrResult[0].TopicID, "L2_PG_JIUYAN", "JIUYAN_ATTR", result, "", confidence)
 		return attrResult, nil
@@ -116,12 +114,12 @@ func (s *ClassifyService) ClassifyStock(ctx context.Context, tsCode string, date
 	return nil, nil
 }
 
-func (s *ClassifyService) attrOutputToTopicMappings(attrOut attribution.AttributionOutput, allMappings []dal_model.TopicMapping) []dal_model.TopicMapping {
-	mappingByTopicID := make(map[int64]dal_model.TopicMapping)
+func (s *ClassifyServiceImpl) attrOutputToTopicRelations(attrOut attribution.AttributionOutput, allMappings []dal_model.TopicRelation) []dal_model.TopicRelation {
+	mappingByTopicID := make(map[int64]dal_model.TopicRelation)
 	for _, m := range allMappings {
 		mappingByTopicID[m.TopicID] = m
 	}
-	result := make([]dal_model.TopicMapping, 0, len(attrOut.FinalTopicIDs))
+	result := make([]dal_model.TopicRelation, 0, len(attrOut.FinalTopicIDs))
 	for _, tid := range attrOut.FinalTopicIDs {
 		if m, ok := mappingByTopicID[tid]; ok {
 			m.Confidence = attrOut.Confidence
@@ -131,7 +129,7 @@ func (s *ClassifyService) attrOutputToTopicMappings(attrOut attribution.Attribut
 	return result
 }
 
-func (s *ClassifyService) saveEvidence(ctx context.Context, date, tsCode string, topicID int64, layer, strategy string, candidates []dal_model.TopicMapping, evidenceText string, confidence float64) {
+func (s *ClassifyServiceImpl) saveEvidence(ctx context.Context, date, tsCode string, topicID int64, layer, strategy string, candidates []dal_model.TopicRelation, evidenceText string, confidence float64) {
 	evidenceRepo := db.NewEvidenceRepository()
 	if evidenceRepo == nil {
 		return
@@ -151,10 +149,10 @@ func (s *ClassifyService) saveEvidence(ctx context.Context, date, tsCode string,
 	evidenceRepo.Create(ctx, e)
 }
 
-func (s *ClassifyService) ClassifyStockBatch(ctx context.Context, tsCodes []string, date string, quoteTime time.Time) (map[string][]dal_model.TopicMapping, error) {
-	mappingCache := redis.NewMappingCache()
+func (s *ClassifyServiceImpl) ClassifyStockBatch(ctx context.Context, tsCodes []string, date string, quoteTime time.Time) (map[string][]dal_model.TopicRelation, error) {
+	relationCache := redis.NewStockTopicsRelationCache()
 
-	l1Results, err := mappingCache.GetStockTopicsBatch(ctx, tsCodes)
+	l1Results, err := relationCache.GetStockTopicsBatch(ctx, tsCodes)
 	if err != nil {
 		return nil, err
 	}
@@ -167,8 +165,8 @@ func (s *ClassifyService) ClassifyStockBatch(ctx context.Context, tsCodes []stri
 	}
 
 	if len(l2Needed) > 0 {
-		mappingRepo := db.NewMappingRepository()
-		l2Raw, err := mappingRepo.GetByTsCodeBatch(ctx, l2Needed)
+		topicRelationRepo := db.NewStockTopicRelationRepository()
+		l2Raw, err := topicRelationRepo.GetByTsCodeBatch(ctx, l2Needed)
 		if err != nil {
 			return nil, err
 		}
@@ -177,7 +175,7 @@ func (s *ClassifyService) ClassifyStockBatch(ctx context.Context, tsCodes []stri
 		topicNameMap := make(map[int64]string)
 
 		for tc, relations := range l2Raw {
-			mappings := make([]dal_model.TopicMapping, 0, len(relations))
+			mappings := make([]dal_model.TopicRelation, 0, len(relations))
 			for _, rel := range relations {
 				name := topicNameMap[rel.TopicID]
 				if name == "" {
@@ -186,7 +184,7 @@ func (s *ClassifyService) ClassifyStockBatch(ctx context.Context, tsCodes []stri
 						name = t.Name
 					}
 				}
-				mappings = append(mappings, dal_model.TopicMapping{
+				mappings = append(mappings, dal_model.TopicRelation{
 					TopicID:      rel.TopicID,
 					TopicName:    name,
 					Source:       rel.Source,
@@ -203,7 +201,7 @@ func (s *ClassifyService) ClassifyStockBatch(ctx context.Context, tsCodes []stri
 			continue
 		}
 
-		var hasManual *dal_model.TopicMapping
+		var hasManual *dal_model.TopicRelation
 		for i := range mappings {
 			if mappings[i].Source == "manual" {
 				hasManual = &mappings[i]
@@ -211,17 +209,17 @@ func (s *ClassifyService) ClassifyStockBatch(ctx context.Context, tsCodes []stri
 			}
 		}
 
-		var result []dal_model.TopicMapping
+		var result []dal_model.TopicRelation
 		if hasManual != nil {
-			result = []dal_model.TopicMapping{*hasManual}
+			result = []dal_model.TopicRelation{*hasManual}
 			s.saveEvidence(ctx, date, tc, hasManual.TopicID, "L1_REDIS", "MANUAL", mappings, "", 1.0)
 		} else {
 			attrInput := attribution.AttributionInput{
-				TsCode:            tc,
-				QuoteTime:         quoteTime,
-				Date:              date,
-				CandidateMappings: mappings,
-				WeightMode:        s.weightMode,
+				TsCode:         tc,
+				QuoteTime:      quoteTime,
+				Date:           date,
+				TopicRelations: mappings,
+				WeightMode:     s.weightMode,
 			}
 			attrOut, err := attribution.RunAttribution(ctx, attrInput)
 			if err != nil || len(attrOut.FinalTopicIDs) == 0 {
@@ -230,7 +228,7 @@ func (s *ClassifyService) ClassifyStockBatch(ctx context.Context, tsCodes []stri
 					result = mappings[:1]
 				}
 			} else {
-				result = s.attrOutputToTopicMappings(attrOut, mappings)
+				result = s.attrOutputToTopicRelations(attrOut, mappings)
 				s.saveEvidence(ctx, date, tc, result[0].TopicID, "L1_REDIS", "JIUYAN_ATTR", mappings, "", attrOut.Confidence)
 			}
 		}
@@ -240,7 +238,7 @@ func (s *ClassifyService) ClassifyStockBatch(ctx context.Context, tsCodes []stri
 	return l1Results, nil
 }
 
-func (s *ClassifyService) NormalizeTopicName(ctx context.Context, rawName string) (int64, string, bool, error) {
+func (s *ClassifyServiceImpl) NormalizeTopicName(ctx context.Context, rawName string) (int64, string, bool, error) {
 	topicRepo := db.NewTopicRepository()
 	topic, err := topicRepo.GetByName(ctx, rawName)
 	if err == nil && topic != nil {
