@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS stock_topic_relations (
     hit_count       INT             NOT NULL DEFAULT 1,
     last_seen_date  DATE,
     first_seen_date DATE,
+    category        VARCHAR(32),
     created_at      TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
     updated_at      TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
     CONSTRAINT uq_stock_topic_relations_ts_topic UNIQUE (ts_code, topic_id),

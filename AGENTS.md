@@ -50,93 +50,75 @@
 ```text
 stock-monitor/
 ├── cmd/
-│   └── server/
-│       └── main.go                     # 程序入口
+│   ├── server/                         # 程序入口
+│   │   └── main.go
+│   ├── crawl_jiuyan/                   # 韭研公社数据爬取脚本
+│   │   └── main.go
+│   ├── rebuild_topics/                 # 重建热点库（从 jiuyan_raw_data + topic_dictionary 归一化）
+│   │   └── main.go
+│   ├── rebuild_stock_relations/        # 重建股票-热点关联（归一化 + 去重）
+│   │   └── main.go
+│   └── reclassify/                     # 离线重新分类，生成 HTML 报表
+│       └── main.go
+├── dal/                                # 数据访问层
+│   ├── db/                             # PostgreSQL CRUD（原生 SQL，pgx/v5）
+│   │   ├── topic_dictionary_repo.go
+│   │   ├── topic_repo.go
+│   │   ├── stock_topic_relation_repo.go
+│   │   ├── stock_repo.go
+│   │   ├── board_repo.go
+│   │   ├── evidence_repo.go
+│   │   └── pool_repo.go
+│   ├── redis/                          # Redis 缓存操作封装
+│   │   ├── stock_topics_cache.go
+│   │   ├── quote_cache.go
+│   │   └── concept_cache.go
+│   └── init.go
 ├── internal/
 │   ├── config/
 │   │   └── config.go                   # Viper 配置管理
-│   ├── model/                          # 数据模型（纯结构体，无业务逻辑）
-│   │   ├── stock.go                    # Stock / StockQuote
-│   │   ├── board.go                    # BoardRule
-│   │   ├── topic.go                    # HotTopic
-│   │   ├── synonym.go                  # TopicSynonym
-│   │   ├── mapping.go                  # StockTopicMapping
-│   │   ├── concept.go                  # StockConceptTag / ConceptTopicMapping
-│   │   ├── pool.go                     # DailyStockPool
-│   │   ├── alert.go                    # StrategyAlert
-│   │   └── evidence.go                 # ClassifyEvidence
-│   ├── repo/                           # 数据访问层（PostgreSQL CRUD，纯 SQL）
-│   │   ├── stock_repo.go
-│   │   ├── board_repo.go
-│   │   ├── topic_repo.go
-│   │   ├── synonym_repo.go
-│   │   ├── mapping_repo.go
-│   │   ├── concept_repo.go
-│   │   ├── pool_repo.go
-│   │   ├── alert_repo.go
-│   │   └── evidence_repo.go
+│   ├── pkg/                            # 通用工具包
+│   │   ├── attribution/                # 归因引擎（Strategy 模式）
+│   │   │   ├── types.go               # AttributionStrategy 接口 + WeightMode + TopicScore
+│   │   │   ├── normal_mode.go         # NormalStrategy — 四维加权评分
+│   │   │   ├── recent_mode.go         # RecentStrategy — 最近优先评分
+│   │   │   └── recent_mode_test.go    # 8 个单元测试
+│   │   ├── limiter/
+│   │   │   └── limit_calc.go          # 涨停价计算（从 boards 表读取比例）
+│   │   ├── converter/
+│   │   │   └── code_converter.go      # sz002445 <-> 002445.SZ 互转
+│   │   ├── retry/
+│   │   │   └── backoff.go             # 指数退避重试中间件
+│   │   ├── shard/
+│   │   │   └── shard.go               # hash(ts_code) % N 分片
+│   │   └── logger/
+│   │       └── logger.go              # zap 结构化日志
+│   ├── model/dal_model/                # 数据模型（纯结构体）
+│   │   ├── topic.go                    # Topic + TopicRelation（含 category）
+│   │   ├── stock_topic_relation.go    # StockTopicRelation（含 category）
+│   │   ├── topic_dictionary.go         # topic_dictionary 表结构
+│   │   ├── stock.go                   # StockBasicInfo
+│   │   ├── board.go                   # BoardRule
+│   │   ├── pool.go                    # DailyStockPool
+│   │   ├── alert.go                   # StrategyAlert
+│   │   └── evidence.go                # ClassificationAuditLog
 │   ├── service/                        # 业务逻辑层
-│   │   ├── monitor.go                  # MonitorService — 实时监控引擎 + 分片
-│   │   ├── classify.go                 # ClassifyService — 四层分类 + 归因
-│   │   ├── alert.go                    # AlertService — 策略告警
-│   │   ├── crawler.go                  # CrawlerService — 韭研爬虫
-│   │   ├── concept_sync.go            # ConceptSyncService — 概念同步
-│   │   ├── snapshot.go                 # SnapshotService — 每日快照
-│   │   └── stock.go                    # StockService — 股票基础
-│   ├── handler/                        # HTTP Handler（Gin handler func）
-│   │   ├── topic_handler.go            # 热点 CRUD
-│   │   ├── synonym_handler.go          # 同义词管理
-│   │   ├── pool_handler.go             # 池子查询
-│   │   ├── alert_handler.go            # 告警查询
-│   │   ├── focus_handler.go            # 关注热点
-│   │   ├── evidence_handler.go         # 分类证据查询/修正
-│   │   ├── concept_handler.go          # 概念映射管理
-│   │   └── ws_handler.go              # WebSocket 入口
-│   ├── middleware/                      # Gin 中间件
-│   │   ├── auth.go                     # X-API-Key 鉴权
-│   │   └── audit.go                    # 写操作审计日志
-│   ├── ws/                             # WebSocket 核心
-│   │   ├── hub.go                      # Hub — 连接管理 + 广播
-│   │   └── client.go                   # Client — 单连接读写
-│   ├── scheduler/                      # 定时任务
-│   │   ├── ticker.go                   # 10s 轮询调度（含分片分发）
-│   │   ├── daily_task.go              # 每日爬虫/快照/缓存刷新
-│   │   └── partition.go                # PG 按月分区表自动创建
-│   ├── cache/                          # Redis 缓存操作封装
-│   │   ├── quote_cache.go             # rt:quote:{ts_code}
-│   │   ├── pool_cache.go              # pool:limit_up / pool:above5
-│   │   ├── mapping_cache.go           # cache:stock_topics / cache:bind_strength
-│   │   └── concept_cache.go           # cache:stock_concepts / cache:concept_to_topics
-│   ├── external/                       # 外部 API 客户端
+│   │   ├── classify.go                # ClassifyService — 四层分类 + 归因策略调度
+│   │   ├── monitor.go                 # MonitorService — 实时监控引擎
+│   │   ├── alert.go                  # AlertService — 策略告警
+│   │   ├── crawler.go                 # CrawlerService — 韭研爬虫
+│   │   ├── concept_sync.go           # ConceptSyncService — 概念同步
+│   │   └── snapshot.go                # SnapshotService — 每日快照
+│   ├── handler/                        # HTTP Handler（Gin）
+│   ├── middleware/                     # Gin 中间件
+│   ├── ws/                            # WebSocket 核心
+│   ├── scheduler/                     # 定时任务
+│   ├── external/                      # 外部 API 客户端
 │   │   ├── tushare/
-│   │   │   ├── client.go              # HTTP 客户端 + token
-│   │   │   ├── realtime.go            # 实时行情接口
-│   │   │   └── concept.go             # concept() + concept_detail()
 │   │   ├── jiuyan/
-│   │   │   ├── client.go              # HTTP 客户端 + 代码格式转换
-│   │   │   └── types.go               # 响应结构体
 │   │   └── llm/
-│   │       ├── client.go              # OpenAI-compatible 客户端
-│   │       └── classify.go            # 分类 prompt + 解析
-│   └── pkg/                            # 通用工具包
-│       ├── limiter/
-│       │   └── limit_calc.go          # 涨停价计算（从 boards 表读取比例）
-│       ├── converter/
-│       │   └── code_converter.go      # sz002445 <-> 002445.SZ 互转
-│       ├── retry/
-│       │   └── backoff.go             # 指数退避重试中间件
-│       └── shard/
-│           └── shard.go               # hash(ts_code) % N 分片
-├── migrations/                         # SQL 迁移文件（顺序执行）
-│   ├── 001_create_boards.sql
-│   ├── 002_create_stocks.sql
-│   ├── 003_create_topics_and_synonyms.sql
-│   ├── 004_create_mappings.sql
-│   ├── 005_create_concepts.sql
-│   ├── 006_create_pools.sql
-│   ├── 007_create_alerts.sql
-│   ├── 008_create_evidence.sql
-│   └── 009_create_crawl_logs.sql
+│   └── mocks/                         # Mock 接口
+├── migrations/                         # SQL 迁移文件
 ├── config/
 │   └── config.yaml                     # 配置文件模板
 ├── go.mod
@@ -398,6 +380,8 @@ func TestClassifyService_ClassifyStock_HitsRedisCache(t *testing.T)     { /* ...
 func TestClassifyService_ClassifyStock_FallbackToLLM(t *testing.T)      { /* ... */ }
 func TestAttributionEngine_Score_SingleCandidate(t *testing.T)          { /* ... */ }
 func TestAttributionEngine_Score_DualAttribution(t *testing.T)          { /* ... */ }
+func TestRecentStrategy_SortByHitCountNoFallback(t *testing.T)          { /* ... */ }
+func TestRecentStrategy_FallbackTopic1(t *testing.T)                   { /* ... */ }
 func TestLimitCalc_Calculate_MainBoard10Pct(t *testing.T)               { /* ... */ }
 func TestCodeConverter_ToTushareCode_SzPrefix(t *testing.T)             { /* ... */ }
 ```
@@ -516,7 +500,7 @@ func TestCodeConverter_ToTushareCode_SzPrefix(t *testing.T)             { /* ...
 |---|---|---|---|
 | 1 | MonitorService | 每 10s 拉取全市场行情，分片并发处理，计算涨停/5%，触发分类和告警 | 10s Ticker，16 分片 goroutine |
 | 2 | ClassifyService | 四层级联分类 + 四维归因算法，每次记录证据 | 被 MonitorService 同步调用 |
-| 3 | AttributionEngine | 四维加权归因评分，解决多热点归因 | 被 ClassifyService 调用 |
+| 3 | AttributionStrategy | 四维加权归因评分（Strategy Pattern: NormalStrategy / RecentStrategy） | 被 ClassifyService 调用 |
 | 4 | AlertService | 策略 2 判定 + 告警记录 + 即时推送 | 被 MonitorService 触发 |
 | 5 | CrawlerService | 韭研公社全量/增量爬取，维护热点库 + 同义词 + 映射 | 初始化全量 + 每日 15:30 增量 |
 | 6 | ConceptSyncService | Tushare 概念板块同步，维护概念标签 + 概念→热点映射 | 初始化全量 + 每周日凌晨增量 |
@@ -563,20 +547,15 @@ type ClassifyService interface {
 }
 
 // ===========================================================================
-// 3. AttributionEngine — 四维加权归因
+// 3. AttributionEngine — 四维加权归因（Strategy Pattern）
 // ===========================================================================
-type AttributionEngine interface {
-    // Score 对候选热点列表计算四维加权得分，返回排序后的结果
-    // weights: {activity: 0.25, bindStrength: 0.40, timeProximity: 0.20, recency: 0.15}
-    // conceptMode 下权重调整为 {activity: 0.45, bindStrength: 0.00, timeProximity: 0.40, recency: 0.15}
-    Score(ctx context.Context, tsCode string, candidates []model.CandidateTopic, mode AttributionMode) ([]model.ScoredTopic, error)
-
-    // Attribute 在 Score 基础上执行决策：单归因 / 双归因 / 未分类
-    // Top1 - Top2 < 0.1 → 双归因
-    Attribute(ctx context.Context, tsCode string, candidates []model.CandidateTopic, mode AttributionMode) ([]model.TopicAttribution, error)
+type AttributionStrategy interface {
+    Name() string
+    RunAttribution(ctx context.Context, input AttributionInput) (AttributionOutput, error)
 }
 
-// AttributionMode 归因模式
+// AttributionMode 归因模式（废弃，仅作文档参考）
+// 实际使用 WeightMode 常量，参见 2.3 节
 type AttributionMode int
 
 const (
@@ -1182,7 +1161,65 @@ ON CONFLICT (synonym) DO NOTHING;
 
 ---
 
-### 2.5 表 4：tushare_concepts（Tushare 概念板块）
+### 2.5 表 4：topic_dictionary（热点归一化字典）
+
+韭研原始数据中的热点名称需要通过 `topic_dictionary` 表归一化到标准热点名称。
+该表由人工维护，是热点名称归一化的唯一数据源（优先级高于 `topic_synonyms`）。
+
+数据流程：`jiuyan_raw_data` → 通过 `raw_topic_name` 查 `topic_dictionary` → 得到 `normalized_name` + `category` → upsert 到 `topics` 表
+
+#### DDL
+
+```sql
+CREATE TABLE topic_dictionary (
+    id              BIGSERIAL       PRIMARY KEY,
+    raw_topic_name  VARCHAR(256)    NOT NULL,           -- 原始热点名称（来自韭研数据）
+    normalized_name VARCHAR(128)    NOT NULL,           -- 归一化后的标准名称
+    category        VARCHAR(64),                        -- 热点分类（如：AI/新能源/医药 等）
+    source          VARCHAR(16)     NOT NULL DEFAULT 'manual',
+    created_at      TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
+    updated_at      TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
+
+    CONSTRAINT uq_topic_dictionary_raw_topic UNIQUE (raw_topic_name),
+    CONSTRAINT uq_topic_dictionary_normalized  UNIQUE (normalized_name, category)
+);
+
+COMMENT ON TABLE  topic_dictionary                IS '热点归一化字典，raw_topic_name → normalized_name + category';
+COMMENT ON COLUMN topic_dictionary.raw_topic_name  IS '原始热点名称（来自韭研数据）';
+COMMENT ON COLUMN topic_dictionary.normalized_name IS '归一化后的标准热点名称';
+COMMENT ON COLUMN topic_dictionary.category        IS '热点分类，如：AI/新能源/医药/军工 等';
+```
+
+#### Go Struct
+
+```go
+// TopicDictionary 热点归一化字典
+type TopicDictionary struct {
+    ID             int64     `db:"id"              json:"id"`
+    RawTopicName   string    `db:"raw_topic_name"   json:"raw_topic_name"`
+    NormalizedName string    `db:"normalized_name"  json:"normalized_name"`
+    Category       string    `db:"category"         json:"category"`
+    Source         string    `db:"source"           json:"source"`
+    CreatedAt      time.Time `db:"created_at"       json:"created_at"`
+    UpdatedAt      time.Time `db:"updated_at"       json:"updated_at"`
+}
+```
+
+#### Upsert SQL
+
+```sql
+INSERT INTO topic_dictionary (raw_topic_name, normalized_name, category, source, updated_at)
+VALUES ($1, $2, $3, $4, NOW())
+ON CONFLICT (raw_topic_name) DO UPDATE SET
+    normalized_name = EXCLUDED.normalized_name,
+    category       = EXCLUDED.category,
+    source         = EXCLUDED.source,
+    updated_at     = NOW();
+```
+
+---
+
+### 2.6 表 5：tushare_concepts（Tushare 概念板块）
 
 存储 Tushare `concept()` 接口返回的概念板块列表（约 400 个）。
 每个概念板块可通过 `topic_concepts` 映射到一个或多个系统热点。
@@ -1233,7 +1270,7 @@ ON CONFLICT (concept_code) DO UPDATE SET
 
 ---
 
-### 2.6 表 5：topic_concepts（热点-概念关联）
+### 2.7 表 6：topic_concepts（热点-概念关联）
 
 建立 Tushare 概念板块到系统热点的映射关系。
 通过自动精确匹配 + LLM 批量匹配 + 人工补充三种方式建立。
@@ -1289,7 +1326,7 @@ ON CONFLICT (concept_name, topic_id) DO NOTHING;
 
 ---
 
-### 2.7 表 6：stock_topic_relations（股票-热点关联）
+### 2.8 表 7：stock_topic_relations（股票-热点关联）
 
 核心映射表，记录每只股票归属的热点。数据来源包括韭研公社爬虫、LLM 分类、人工标注。
 `source = 'manual'` 的记录具有最高优先级，分类引擎直接采信跳过归因算法。
@@ -1307,6 +1344,7 @@ CREATE TABLE stock_topic_relations (
     hit_count       INT             NOT NULL DEFAULT 1, -- 历史出现次数（韭研标注频次）
     last_seen_date  DATE,                               -- 最近一次出现日期
     first_seen_date DATE,                               -- 首次出现日期
+    category        VARCHAR(64),                          -- 热点分类（如：AI/新能源/医药）
     created_at      TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
     updated_at      TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
 
@@ -1323,6 +1361,7 @@ COMMENT ON COLUMN stock_topic_relations.confidence          IS '分类置信度 
 COMMENT ON COLUMN stock_topic_relations.hit_count           IS '韭研历史标注频次，用于归因算法的频次维度权重';
 COMMENT ON COLUMN stock_topic_relations.last_seen_date      IS '最近一次在韭研数据中出现的日期';
 COMMENT ON COLUMN stock_topic_relations.first_seen_date     IS '首次在韭研数据中出现的日期';
+COMMENT ON COLUMN stock_topic_relations.category            IS '热点分类，如：AI/新能源/医药';
 
 CREATE INDEX idx_stock_topic_relations_ts_code  ON stock_topic_relations (ts_code);
 CREATE INDEX idx_stock_topic_relations_topic_id ON stock_topic_relations (topic_id);
@@ -1342,6 +1381,7 @@ type StockTopicRelation struct {
     HitCount      int        `db:"hit_count"        json:"hit_count"`
     LastSeenDate  *time.Time `db:"last_seen_date"   json:"last_seen_date,omitempty"`
     FirstSeenDate *time.Time `db:"first_seen_date"  json:"first_seen_date,omitempty"`
+    Category      string     `db:"category"         json:"category"`
     CreatedAt     time.Time  `db:"created_at"       json:"created_at"`
     UpdatedAt     time.Time  `db:"updated_at"       json:"updated_at"`
 }
@@ -1350,28 +1390,30 @@ type StockTopicRelation struct {
 #### Upsert SQL（韭研爬虫写入）
 
 ```sql
-INSERT INTO stock_topic_relations (ts_code, topic_id, source, hit_count, first_seen_date, last_seen_date, updated_at)
-VALUES ($1, $2, 'jiuyan', 1, $3, $3, NOW())
+INSERT INTO stock_topic_relations (ts_code, topic_id, source, hit_count, first_seen_date, last_seen_date, category, updated_at)
+VALUES ($1, $2, 'jiuyan', 1, $3, $3, $4, NOW())
 ON CONFLICT (ts_code, topic_id) DO UPDATE SET
     hit_count      = stock_topic_relations.hit_count + 1,
     last_seen_date = GREATEST(stock_topic_relations.last_seen_date, EXCLUDED.last_seen_date),
+    category       = COALESCE(EXCLUDED.category, stock_topic_relations.category),
     updated_at     = NOW();
 ```
 
 #### Upsert SQL（手动标注写入 -- 最高优先级）
 
 ```sql
-INSERT INTO stock_topic_relations (ts_code, topic_id, source, confidence, hit_count, updated_at)
-VALUES ($1, $2, 'manual', 1.0, 1, NOW())
+INSERT INTO stock_topic_relations (ts_code, topic_id, source, confidence, hit_count, category, updated_at)
+VALUES ($1, $2, 'manual', 1.0, 1, $3, NOW())
 ON CONFLICT (ts_code, topic_id) DO UPDATE SET
     source     = 'manual',
     confidence = 1.0,
+    category   = COALESCE(EXCLUDED.category, stock_topic_relations.category),
     updated_at = NOW();
 ```
 
 ---
 
-### 2.8 表 7：tushare_concept_details（概念板块成分股）
+### 2.9 表 8：tushare_concept_details（概念板块成分股）
 
 存储 Tushare `concept_detail()` 接口返回的每个概念板块下的成分股列表。
 每只股票可属于多个概念。用于分类引擎第 3 层（L3_PG_CONCEPT）兜底查询，
@@ -1424,7 +1466,7 @@ ON CONFLICT (ts_code, concept_name) DO NOTHING;
 
 ---
 
-### 2.9 表 8：focus_topics（关注热点）
+### 2.10 表 9：focus_topics（关注热点）
 
 每日关注的热点列表。用户通过前端/API 设置今日关注的热点，
 策略告警引擎仅对关注列表内的热点触发告警。
@@ -2666,12 +2708,15 @@ type ClassifyInput struct {
 type TopicScore struct {
     TopicID        int64   `json:"topic_id"`
     TopicName      string  `json:"topic_name"`
+    Category       string  `json:"category"`            // 热点分类（来自 topics.category）
     SActivity      float64 `json:"s_activity"`       // S1 活跃度得分
     SBindStrength  float64 `json:"s_bind_strength"`  // S2 关联强度得分
     STimeProximity float64 `json:"s_time_proximity"` // S3 时间接近度得分
     SRecency       float64 `json:"s_recency"`        // S4 时效性得分
     TotalScore     float64 `json:"total_score"`      // 加权总分
     Source         string  `json:"source"`           // 数据来源: jiuyan/tushare/llm/manual
+    UsedHitCount   bool    `json:"used_hit_count"`   // true = TotalScore 来自 hit_count（last_seen > 30d）
+    Days           int     `json:"days"`            // 原始天数差(lastSeen → today)，用于 RecentStrategy 排序
 }
 
 // ClassifyOutput 分类引擎输出
@@ -2711,6 +2756,7 @@ RULE-L1-LATENCY: 期望延迟 < 1ms。
 type TopicMapping struct {
     TopicID      int64   `json:"topic_id"`
     TopicName    string  `json:"topic_name"`
+    Category     string  `json:"category"`        // 热点分类
     Source       string  `json:"source"`         // jiuyan / manual / llm
     HitCount     int     `json:"hit_count"`      // 韭研标注频次
     LastSeenDate string  `json:"last_seen_date"` // YYYY-MM-DD
@@ -2798,27 +2844,28 @@ func ClassifyStock(ctx context.Context, input ClassifyInput) (ClassifyOutput, er
 
 ---
 
-### 2.3 四维归因算法（Four-Dimensional Attribution）
+### 2.3 四维归因算法（Attribution — Strategy Pattern）
 
 #### 2.3.1 归因输入/输出
 
 ```go
 // AttributionInput 归因算法输入
 type AttributionInput struct {
-    TsCode            string           `json:"ts_code"`
-    StockName         string           `json:"stock_name"`
-    QuoteTime         time.Time        `json:"quote_time"`         // 该股票涨停/入池时间
-    Date              string           `json:"date"`               // 交易日 YYYY-MM-DD
-    CandidateMappings []TopicMapping   `json:"candidate_mappings"` // 候选热点映射列表
-    WeightMode        WeightMode       `json:"weight_mode"`        // 权重模式
+    TsCode         string           `json:"ts_code"`
+    StockName      string           `json:"stock_name"`
+    QuoteTime      time.Time        `json:"quote_time"`         // 该股票涨停/入池时间
+    Date           string           `json:"date"`               // 交易日 YYYY-MM-DD
+    TopicRelations []TopicRelation  `json:"topic_relations"`  // 候选热点映射列表
+    WeightMode     WeightMode       `json:"weight_mode"`       // 权重模式
 }
 
 // WeightMode 权重模式
 type WeightMode int
 
 const (
-    WeightModeNormal  WeightMode = 0 // 普通模式（有韭研标签）
-    WeightModeConcept WeightMode = 1 // 概念模式（仅概念标签，无频次数据）
+    WeightModeNormal  WeightMode = 0 // 普通模式：四维加权评分（NormalStrategy）
+    WeightModeConcept WeightMode = 1 // 概念模式：活跃度权重提高，关联强度置零（NormalStrategy）
+    WeightModeRecent  WeightMode = 2 // 最近模式：Days 优先，stale 时 HitCount 决胜（RecentStrategy）
 )
 
 // AttributionWeights 四维权重配置
@@ -2841,7 +2888,58 @@ type AttributionOutput struct {
 func RunAttribution(ctx context.Context, input AttributionInput) (AttributionOutput, error)
 ```
 
-#### 2.3.2 权重配置
+#### 2.3.2 归因策略接口（Strategy Pattern）
+
+```go
+// AttributionStrategy 归因策略接口
+type AttributionStrategy interface {
+    Name() string
+    RunAttribution(ctx context.Context, input AttributionInput) (AttributionOutput, error)
+}
+
+// NewStrategy 根据 WeightMode 创建对应的策略实例
+func NewStrategy(mode WeightMode) AttributionStrategy {
+    switch mode {
+    case WeightModeRecent:
+        return &RecentStrategy{}
+    default:
+        return &NormalStrategy{}
+    }
+}
+```
+
+#### 2.3.3 FilterTopics 过滤热点
+
+```go
+// FilterTopics 是归因时需要特殊处理的热点 ID 列表
+// RecentStrategy 在 stale 组（Days > 15）内选择 winner 时会跳过这些热点
+var FilterTopics = []int64{
+    10589,
+    11273,
+    11326,
+}
+
+func InFilterTopic(topicID int64) bool {
+    return slices.Contains(FilterTopics, topicID)
+}
+```
+
+#### 2.3.4 TopicRelation 输入结构
+
+```go
+// TopicRelation 是传入归因算法的热点映射数据
+type TopicRelation struct {
+    TopicID      int64   `json:"topic_id"`
+    TopicName    string  `json:"topic_name"`
+    Category     string  `json:"category"`        // 热点分类
+    Source       string  `json:"source"`         // jiuyan / tushare / llm / manual
+    HitCount     int     `json:"hit_count"`       // 历史出现次数
+    LastSeenDate string  `json:"last_seen_date"` // YYYY-MM-DD
+    Confidence   float64 `json:"confidence"`    // 置信度
+}
+```
+
+#### 2.3.5 权重配置（Normal / Concept 模式）
 
 | 权重模式 | W_activity | W_bindStrength | W_timeProximity | W_recency | 总和 |
 |---------|-----------|---------------|----------------|----------|-----|
@@ -2871,7 +2969,7 @@ RULE: 概念模式下将关联强度的 0.40 权重分配给活跃度(+0.20)和�
 RULE: 四个权重之和必须 == 1.0。
 ```
 
-#### 2.3.3 S1: 热点活跃度（Activity Score）
+#### 2.3.6 S1: 热点活跃度（Activity Score）
 
 ```go
 // CalcActivityScore 计算热点活跃度得分
@@ -2891,7 +2989,7 @@ RULE-S1-SOURCE: topicLimitCount 从 Redis SortedSet topic:activity:limit:{date} 
 RULE-S1-RANGE: 结果归一化到 [0.0, 1.0]，最活跃热点得分 = 1.0。
 ```
 
-#### 2.3.4 S2: 关联强度（Bind Strength Score）
+#### 2.3.7 S2: 关联强度（Bind Strength Score）
 
 ```go
 // CalcBindStrengthScore 计算股票-热点关联强度得分
@@ -2915,7 +3013,7 @@ RULE-S2-MANUAL: source='manual' 的映射已在分类引擎层拦截，不进入
 **示例**: 科大讯飞在 AI 热点下出现 47 次，机器人 8 次，教育 3 次。totalHitCount = 58。
 AI 关联强度 = 47/58 = 0.8103，机器人 = 8/58 = 0.1379，教育 = 3/58 = 0.0517。
 
-#### 2.3.5 S3: 时间接近度（Time Proximity Score）
+#### 2.3.8 S3: 时间接近度（Time Proximity Score）
 
 ```go
 // CalcTimeProximityScore 计算涨停时间聚集性得分
@@ -2937,7 +3035,7 @@ RULE-S3-SOURCE: topicLimitTimes 从 Redis List topic:limit_times:{date}:{topic_i
 RULE-S3-FILTER: 仅使用早于 stockLimitTime 的条目计算，晚于的忽略。
 ```
 
-#### 2.3.6 S4: 时效性（Recency Score）
+#### 2.3.9 S4: 时效性（Recency Score）
 
 ```go
 // CalcRecencyScore 计算映射时效性得分
@@ -2958,7 +3056,7 @@ RULE-S4-ZERO: 若 lastSeenDate 为零值（从未出现），返回 0.1（最低
 RULE-S4-SOURCE: lastSeenDate 来自 stock_topic_mappings.last_seen_date。
 ```
 
-#### 2.3.7 综合评分公式
+#### 2.3.10 综合评分公式
 
 ```go
 // CalcTotalScore 计算单个候选热点的综合得分
@@ -2982,7 +3080,7 @@ RULE-SCORE-RANGE: 理论范围 [0.0, 1.0]（因为每个 Si 属于 [0,1] 且 sum
 RULE-SCORE-PRECISION: 保留 4 位小数: math.Round(score*10000) / 10000。
 ```
 
-#### 2.3.8 归因决策规则
+#### 2.3.11 归因决策规则
 
 ```go
 // DecideAttribution 根据候选热点评分做出归因决策
@@ -3008,7 +3106,7 @@ RULE-DECIDE-DUAL-ALERT: 双归因时，策略告警只要用户关注了其中�
 RULE-DECIDE-CONFIDENCE: Confidence = Top1.TotalScore（最高分）。
 ```
 
-#### 2.3.9 归因算法完整伪代码
+#### 2.3.12 归因算法完整伪代码（NormalStrategy）
 
 ```go
 func RunAttribution(ctx context.Context, input AttributionInput) (AttributionOutput, error) {
@@ -3034,14 +3132,14 @@ func RunAttribution(ctx context.Context, input AttributionInput) (AttributionOut
 
     // ── Step 2: 计算该股票的 totalHitCount（用于 S2 归一化）──
     totalHitCount := 0
-    for _, m := range input.CandidateMappings {
+    for _, m := range input.TopicRelations {
         totalHitCount += m.HitCount
     }
 
     // ── Step 3: 逐个候选热点评分 ──
     var scores []TopicScore
 
-    for _, mapping := range input.CandidateMappings {
+    for _, mapping := range input.TopicRelations {
         topicLimitCount, isActive := allTopicActivity[mapping.TopicID]
 
         // 过滤：仅保留今日有涨停股的活跃热点
@@ -3073,6 +3171,7 @@ func RunAttribution(ctx context.Context, input AttributionInput) (AttributionOut
         scores = append(scores, TopicScore{
             TopicID:        mapping.TopicID,
             TopicName:      mapping.TopicName,
+            Category:       mapping.Category,
             SActivity:      math.Round(s1*10000) / 10000,
             SBindStrength:  math.Round(s2*10000) / 10000,
             STimeProximity: math.Round(s3*10000) / 10000,
@@ -3094,7 +3193,85 @@ func RunAttribution(ctx context.Context, input AttributionInput) (AttributionOut
 }
 ```
 
-#### 2.3.10 边界条件汇总表
+#### 2.3.13 RecentStrategy — 最近优先评分
+
+```go
+func (s *RecentStrategy) RunAttribution(ctx context.Context, input AttributionInput) (AttributionOutput, error) {
+    today, _ := time.Parse("2006-01-02", input.Date)
+
+    var scores []TopicScore
+    for _, m := range input.TopicRelations {
+        days := 0
+        if m.LastSeenDate != "" {
+            if t, err := time.Parse("2006-01-02", m.LastSeenDate); err == nil {
+                days = int(today.Sub(t).Hours() / 24)
+            }
+        }
+        scores = append(scores, TopicScore{
+            TopicID:      m.TopicID,
+            TopicName:    m.TopicName,
+            Category:     m.Category,
+            BindStrength: float64(m.HitCount),
+            RecencyScore: 0,
+            TotalScore:   0,
+            Source:       m.Source,
+            UsedHitCount: false,
+            Days:         days,
+        })
+    }
+
+    if len(scores) == 0 {
+        return AttributionOutput{}, nil
+    }
+
+    const staleDays = 15
+
+    sort.Slice(scores, func(i, j int) bool {
+        return scores[i].Days < scores[j].Days
+    })
+
+    winner := int64(0)
+
+    if scores[0].Days <= staleDays {
+        winner = scores[0].TopicID
+    } else {
+        var stale []TopicScore
+        for i := range scores {
+            if scores[i].Days > staleDays {
+                stale = append(stale, scores[i])
+            }
+        }
+        sort.Slice(stale, func(i, j int) bool {
+            if stale[i].BindStrength != stale[j].BindStrength {
+                return stale[i].BindStrength > stale[j].BindStrength
+            }
+            return stale[i].Days < stale[j].Days
+        })
+        for i := range stale {
+            if !InFilterTopic(stale[i].TopicID) {
+                winner = stale[i].TopicID
+                break
+            }
+        }
+        scores = stale
+    }
+
+    return AttributionOutput{
+        FinalTopicIDs:     []int64{winner},
+        AllScores:         scores,
+        IsDualAttribution: false,
+        Confidence:        1.0,
+    }, nil
+}
+```
+
+**RecentStrategy 决策规则：**
+1. 按 Days 升序排序（最近出现优先）
+2. 若 scores[0].Days <= 15 → winner = scores[0]（不看 hit_count）
+3. 若 scores[0].Days > 15（stale 组）→ 在 stale 中按 HitCount 降序，FilterTopics 跳过，仅当 winner 来自 stale 组时才跳过 FilterTopic
+4. CalcRecencyScore 在 days > 14 时返回 0.0（不可用于 tiebreak），以 Days 字段替代
+
+#### 2.3.14 边界条件汇总表
 
 | 边界条件 | 处理方式 | 涉及函数 |
 |---------|---------|---------|
@@ -3102,13 +3279,17 @@ func RunAttribution(ctx context.Context, input AttributionInput) (AttributionOut
 | totalHitCount == 0 | S2 = 0.0 | CalcBindStrengthScore |
 | topicLimitTimes 过滤后为空 | S3 = 0.5（中性值） | CalcTimeProximityScore |
 | lastSeenDate 为零值 | S4 = 0.1（最低时效性） | CalcRecencyScore |
+| days > 14 | S4 = 0.0，Days 字段用于排序 | CalcRecencyScore |
 | 候选热点过滤后为空 | 返回空归因，标记未分类 | DecideAttribution |
 | 仅 1 个活跃候选 | 直接归因，无需评分排序 | DecideAttribution |
 | Top1 == Top2 得分差 < 0.1 | 双归因 | DecideAttribution |
 | 所有候选得分均为 0 | 返回空归因，标记未分类 | DecideAttribution |
-| 概念模式下无频次数据 | S2 跳过（权重=0），权重分配给 S1 和 S3 | RunAttribution |
+| 概念模式下无频次数据 | S2 跳过（权重=0），权重分配给 S1 和 S3 | NormalStrategy |
+| scores[0].Days <= 15 | winner = scores[0]（不看 FilterTopic） | RecentStrategy |
+| scores[0].Days > 15，winner 来自 stale 组 | FilterTopics 跳过，仅在此场景生效 | RecentStrategy |
+| stale 组全部为 FilterTopics | winner = 0，返回空归因 | RecentStrategy |
 
-#### 2.3.11 算法效果推演
+#### 2.3.15 算法效果推演
 
 **场景1: 典型单热点**
 

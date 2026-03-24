@@ -19,7 +19,7 @@ var (
 
 func main() {
 	startDate := flag.String("start", "2023-01-01", "起始日期 YYYY-MM-DD")
-	endDate := flag.String("end", "2026-03-19", "结束日期 YYYY-MM-DD，默认为今天")
+	endDate := flag.String("end", "2026-03-18", "结束日期 YYYY-MM-DD，默认为今天")
 	dryRun := flag.Bool("dry-run", false, "仅打印统计信息，不写入数据库")
 	flag.Parse()
 
@@ -33,6 +33,13 @@ func main() {
 	}
 	db.Init()
 
+	topicDictRepo := db.NewTopicDictionaryRepository()
+	topicDictMap, err := topicDictRepo.GetAllMap(ctx)
+	if err != nil {
+		log.Fatalf("load topic_dictionary: %v", err)
+	}
+	log.Printf("loaded %d topic_dictionary entries", len(topicDictMap))
+
 	log.Printf("aggregating jiuyan_raw_data from %s to %s ...", *startDate, *endDate)
 
 	var rows []struct {
@@ -42,7 +49,7 @@ func main() {
 		FirstSeen time.Time
 		LastSeen  time.Time
 	}
-	err := db.PostgresStockDB(ctx).
+	err = db.PostgresStockDB(ctx).
 		Raw(`
 			SELECT topic_name, stock_code,
 				COUNT(*) AS hit_count,
@@ -59,32 +66,59 @@ func main() {
 
 	log.Printf("found %d unique (topic, stock) pairs", len(rows))
 
-	topicNames := make([]string, 0, len(rows))
-	seenTopics := make(map[string]struct{})
+	// Normalize topic names via topic_dictionary
+	type normTopic struct {
+		NormName string
+		Category string
+	}
+	rawToNorm := make(map[string]normTopic)
+	allNormNames := make([]string, 0)
+	seenNorm := make(map[string]struct{})
 	for _, r := range rows {
-		if _, ok := seenTopics[r.TopicName]; !ok {
-			seenTopics[r.TopicName] = struct{}{}
-			topicNames = append(topicNames, r.TopicName)
+		if _, ok := rawToNorm[r.TopicName]; !ok {
+			normName := r.TopicName
+			category := ""
+			if dict, ok := topicDictMap[r.TopicName]; ok {
+				normName = dict.NormalizedName
+				category = dict.Category
+			}
+			rawToNorm[r.TopicName] = normTopic{NormName: normName, Category: category}
+			if _, ok := seenNorm[normName]; !ok {
+				seenNorm[normName] = struct{}{}
+				allNormNames = append(allNormNames, normName)
+			}
 		}
 	}
+	log.Printf("normalized to %d unique topic names", len(allNormNames))
 
+	// Look up topic_id by normalized name
 	topicNameToID := make(map[string]int64)
-	if len(topicNames) > 0 {
-		topics, err := topicRepo.GetByNames(ctx, topicNames)
+	topicNameToCategory := make(map[string]string)
+	if len(allNormNames) > 0 {
+		topics, err := topicRepo.GetByNames(ctx, allNormNames)
 		if err != nil {
 			log.Fatalf("query topics: %v", err)
 		}
 		for _, t := range topics {
 			topicNameToID[t.Name] = t.ID
+			topicNameToCategory[t.Name] = t.Category
 		}
 	}
 
 	var mappings []dal_model.StockTopicRelation
 	missingTopic := 0
 	missingStock := 0
+	noCategory := 0
 
+	// Deduplicate by (ts_code, topic_id) - accumulate hit_count and keep latest last_seen
+	type dedupKey struct {
+		TsCode  string
+		TopicID int64
+	}
+	dedup := make(map[dedupKey]*dal_model.StockTopicRelation)
 	for _, r := range rows {
-		topicID, ok := topicNameToID[r.TopicName]
+		nt := rawToNorm[r.TopicName]
+		topicID, ok := topicNameToID[nt.NormName]
 		if !ok {
 			missingTopic++
 			continue
@@ -94,22 +128,44 @@ func main() {
 			missingStock++
 			continue
 		}
-		mappings = append(mappings, dal_model.StockTopicRelation{
-			TsCode:        tsCode,
-			TopicID:       topicID,
-			Source:        "jiuyan",
-			TopicName:     r.TopicName,
-			HitCount:      r.HitCount,
-			LastSeenDate:  &r.LastSeen,
-			FirstSeenDate: &r.FirstSeen,
-		})
+		category := nt.Category
+		if category == "" {
+			category = topicNameToCategory[nt.NormName]
+		}
+		if category == "" {
+			noCategory++
+		}
+		key := dedupKey{TsCode: tsCode, TopicID: topicID}
+		if existing, ok := dedup[key]; ok {
+			existing.HitCount += r.HitCount
+			if r.LastSeen.After(*existing.LastSeenDate) {
+				existing.LastSeenDate = &r.LastSeen
+			}
+			if r.FirstSeen.Before(*existing.FirstSeenDate) {
+				existing.FirstSeenDate = &r.FirstSeen
+			}
+		} else {
+			dedup[key] = &dal_model.StockTopicRelation{
+				TsCode:        tsCode,
+				TopicID:       topicID,
+				Source:        "jiuyan",
+				TopicName:     nt.NormName,
+				Category:      category,
+				HitCount:      r.HitCount,
+				LastSeenDate:  &r.LastSeen,
+				FirstSeenDate: &r.FirstSeen,
+			}
+		}
+	}
+	for _, m := range dedup {
+		mappings = append(mappings, *m)
 	}
 
-	log.Printf("skipping %d pairs (topic not found), %d pairs (stock code invalid)", missingTopic, missingStock)
+	log.Printf("skipping %d pairs (topic not found), %d pairs (stock code invalid), %d pairs have no category", missingTopic, missingStock, noCategory)
 
 	if *dryRun {
 		for _, m := range mappings {
-			log.Printf("  ts_code=%s topic_id=%d hit=%d", m.TsCode, m.TopicID, m.HitCount)
+			log.Printf("  ts_code=%s topic_id=%d topic=%s category=%s hit=%d", m.TsCode, m.TopicID, m.TopicName, m.Category, m.HitCount)
 		}
 		return
 	}

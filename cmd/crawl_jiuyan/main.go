@@ -9,12 +9,14 @@ import (
 	"log"
 	"os/exec"
 	"regexp"
+	"stock/internal/external/jiuyan"
 	"strings"
 	"time"
 
 	"gorm.io/gorm"
 	"stock/config"
 	"stock/dal/db"
+	"stock/model/dal_model"
 )
 
 // mask 隐藏敏感字符串中间部分，只显示前4位和后4位
@@ -76,9 +78,9 @@ func parseCurl(curlCmd string) (*CurlParams, error) {
 }
 
 func main() {
-	startDate := flag.String("start", "2025-01-28", "起始日期 YYYY-MM-DD")
+	startDate := flag.String("start", "2026-03-23", "起始日期 YYYY-MM-DD")
 	endDate := flag.String("end", "", "结束日期 YYYY-MM-DD，默认为今天")
-	curlCmd := flag.String("curl", "curl 'https://app.jiuyangongshe.com/jystock-app/api/v1/action/field' \\\n  -H 'Accept: application/json, text/plain, */*' \\\n  -H 'Accept-Language: zh-CN,zh;q=0.9,en;q=0.8,en-GB;q=0.7,en-US;q=0.6' \\\n  -H 'Connection: keep-alive' \\\n  -H 'Content-Type: application/json' \\\n  -b 'SESSION=ZjY3ZTZkNjgtNDAyMC00YmNmLTlkMGMtZWZjOGJmZGExMjVm; Hm_lvt_58aa18061df7855800f2a1b32d6da7f4=1773930659; Hm_lpvt_58aa18061df7855800f2a1b32d6da7f4=1774021429' \\\n  -H 'Origin: https://www.jiuyangongshe.com' \\\n  -H 'Referer: https://www.jiuyangongshe.com/' \\\n  -H 'Sec-Fetch-Dest: empty' \\\n  -H 'Sec-Fetch-Mode: cors' \\\n  -H 'Sec-Fetch-Site: same-site' \\\n  -H 'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36 Edg/146.0.0.0' \\\n  -H 'platform: 3' \\\n  -H 'sec-ch-ua: \"Chromium\";v=\"146\", \"Not-A.Brand\";v=\"24\", \"Microsoft Edge\";v=\"146\"' \\\n  -H 'sec-ch-ua-mobile: ?0' \\\n  -H 'sec-ch-ua-platform: \"Windows\"' \\\n  -H 'timestamp: 1774021443624' \\\n  -H 'token: 74160be588a74bee7853c7f13c8c07d9' \\\n  --data-raw '{\"date\":\"2025-09-19\",\"pc\":1}'", "直接从浏览器复制完整的 curl 命令（包含 -b -H token -H timestamp 等），程序会自动提取 token/cookie/timestamp")
+	curlCmd := flag.String("curl", "curl 'https://app.jiuyangongshe.com/jystock-app/api/v1/action/field' \\\n  -H 'Accept: application/json, text/plain, */*' \\\n  -H 'Accept-Language: zh-CN,zh;q=0.9,en;q=0.8,en-GB;q=0.7,en-US;q=0.6' \\\n  -H 'Connection: keep-alive' \\\n  -H 'Content-Type: application/json' \\\n  -b 'SESSION=ZjY3ZTZkNjgtNDAyMC00YmNmLTlkMGMtZWZjOGJmZGExMjVm; Hm_lvt_58aa18061df7855800f2a1b32d6da7f4=1773930659,1774175854,1774273568; Hm_lpvt_58aa18061df7855800f2a1b32d6da7f4=1774273568' \\\n  -H 'Origin: https://www.jiuyangongshe.com' \\\n  -H 'Referer: https://www.jiuyangongshe.com/' \\\n  -H 'Sec-Fetch-Dest: empty' \\\n  -H 'Sec-Fetch-Mode: cors' \\\n  -H 'Sec-Fetch-Site: same-site' \\\n  -H 'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36 Edg/146.0.0.0' \\\n  -H 'platform: 3' \\\n  -H 'sec-ch-ua: \"Chromium\";v=\"146\", \"Not-A.Brand\";v=\"24\", \"Microsoft Edge\";v=\"146\"' \\\n  -H 'sec-ch-ua-mobile: ?0' \\\n  -H 'sec-ch-ua-platform: \"Windows\"' \\\n  -H 'timestamp: 1774365145701' \\\n  -H 'token: 8b61415488d6cbebf3e7cd1954956e97' \\\n  --data-raw '{\"date\":\"2026-03-23\",\"pc\":1}'", "直接从浏览器复制完整的 curl 命令（包含 -b -H token -H timestamp 等），程序会自动提取 token/cookie/timestamp")
 	token := flag.String("token", "", "Jiuyan Token（从 -curl 参数自动提取，也可手动指定）")
 	cookie := flag.String("cookie", "", "Jiuyan Cookie（从 -curl 参数自动提取，也可手动指定）")
 	timestamp := flag.String("timestamp", "", "Jiuyan Timestamp（从 -curl 参数自动提取，也可手动指定）")
@@ -224,9 +226,10 @@ func curlJiuyan(date, token, cookie string, timestamp string) ([]jiuyanField, er
 	return raw.Data[1:], nil
 }
 
-func crawlOneDate(ctx context.Context, db *gorm.DB, date, token, cookie string, timestamp string) error {
+func crawlOneDate(ctx context.Context, gormDB *gorm.DB, date, token, cookie string, timestamp string) error {
 	log.Printf("fetching jiuyan data for %s", date)
-	fields, err := curlJiuyan(date, token, cookie, timestamp)
+	//fields, err := curlJiuyan(date, token, cookie, timestamp)
+	fields, err := jiuyan.FetchFieldData(ctx, date)
 	//fields, err := jiuyan.FetchFieldData(ctx, date)
 	if err != nil {
 		return fmt.Errorf("fetch field data: %w", err)
@@ -234,27 +237,41 @@ func crawlOneDate(ctx context.Context, db *gorm.DB, date, token, cookie string, 
 
 	log.Printf("fetched %d topics", len(fields))
 
+	// Load topic_dictionary into cache for normalization
+	topicDictRepo := db.NewTopicDictionaryRepository()
+	topicDictMap, err := topicDictRepo.GetAllMap(ctx)
+	if err != nil {
+		log.Printf("warn: load topic_dictionary failed: %v, using raw topic names", err)
+		topicDictMap = make(map[string]dal_model.TopicDictionary)
+	}
+
 	var totalStocks int
 	for _, field := range fields {
 		totalStocks += len(field.List)
 
+		// Use normalized name from topic_dictionary if available
+		topicName := field.Name
+		if dict, ok := topicDictMap[field.Name]; ok {
+			topicName = dict.NormalizedName
+		}
+
 		for _, stock := range field.List {
 			rawJSON, _ := json.Marshal(stock)
-			err := db.WithContext(ctx).Exec(`
+			err := gormDB.WithContext(ctx).Exec(`
 				INSERT INTO jiuyan_raw_data (date, topic_name, action_field_id, stock_code, stock_name, expound, raw_json)
 				VALUES (?, ?, ?, ?, ?, ?, ?)
 				ON CONFLICT (date, topic_name, stock_code) DO UPDATE SET
 					stock_name = EXCLUDED.stock_name,
 					expound = EXCLUDED.expound,
 					raw_json = EXCLUDED.raw_json
-			`, date, field.Name, field.ActionFieldID, stock.Code, stock.Name, stock.Article.ActionInfo.Expound, rawJSON).Error
+			`, date, topicName, field.ActionFieldID, stock.Code, stock.Name, stock.Article.ActionInfo.Expound, rawJSON).Error
 			if err != nil {
 				log.Printf("insert raw data failed: %v", err)
 			}
 		}
 
 		parsedDate, _ := time.Parse("2006-01-02", date)
-		err = db.WithContext(ctx).Exec(`
+		err = gormDB.WithContext(ctx).Exec(`
 			INSERT INTO topics (name, source, jiuyan_field_id, first_seen_date, last_seen_date, occurrence_count, updated_at)
 			VALUES (?, 'jiuyan', ?, ?, ?, 1, NOW())
 			ON CONFLICT (name) DO UPDATE SET
@@ -262,9 +279,9 @@ func crawlOneDate(ctx context.Context, db *gorm.DB, date, token, cookie string, 
 				last_seen_date = GREATEST(topics.last_seen_date, EXCLUDED.last_seen_date),
 				occurrence_count = topics.occurrence_count + 1,
 				updated_at = NOW()
-		`, field.Name, field.ActionFieldID, parsedDate, parsedDate).Error
+		`, topicName, field.ActionFieldID, parsedDate, parsedDate).Error
 		if err != nil {
-			log.Printf("upsert topic %s failed: %v", field.Name, err)
+			log.Printf("upsert topic %s failed: %v", topicName, err)
 		}
 	}
 

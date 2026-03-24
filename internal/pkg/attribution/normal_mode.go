@@ -63,6 +63,7 @@ func (s *NormalStrategy) RunAttribution(ctx context.Context, input AttributionIn
 		scores = append(scores, TopicScore{
 			TopicID:       m.TopicID,
 			TopicName:     m.TopicName,
+			Category:      m.Category,
 			ActivityScore: s1,
 			BindStrength:  s2,
 			TimeProximity: s3,

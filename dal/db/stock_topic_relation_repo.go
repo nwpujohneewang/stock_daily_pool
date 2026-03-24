@@ -52,7 +52,7 @@ func (r StockTopicRelationRepoImpl) Upsert(ctx context.Context, m *dal_model.Sto
 	return PostgresStockDB(ctx).Clauses(clause.OnConflict{
 		Columns: []clause.Column{{Name: "ts_code"}, {Name: "topic_id"}},
 		DoUpdates: clause.AssignmentColumns([]string{
-			"topic_name", "hit_count", "last_seen_date", "updated_at",
+			"topic_name", "category", "hit_count", "last_seen_date", "updated_at",
 		}),
 	}).Create(m).Error
 }
@@ -65,7 +65,7 @@ func (r StockTopicRelationRepoImpl) UpsertBatch(ctx context.Context, mappings []
 		Clauses(clause.OnConflict{
 			Columns: []clause.Column{{Name: "ts_code"}, {Name: "topic_id"}},
 			DoUpdates: clause.AssignmentColumns([]string{
-				"topic_name", "hit_count", "last_seen_date", "updated_at",
+				"topic_name", "category", "hit_count", "last_seen_date", "updated_at",
 			}),
 		}).
 		CreateInBatches(mappings, 500).Error
@@ -98,18 +98,19 @@ func (r StockTopicRelationRepoImpl) BulkUpsertAccumulate(ctx context.Context, ma
 	}
 
 	valueStrings := make([]string, 0, len(mappings))
-	valueArgs := make([]interface{}, 0, len(mappings)*8)
+	valueArgs := make([]interface{}, 0, len(mappings)*9)
 	now := time.Now()
 
 	for _, m := range mappings {
-		valueStrings = append(valueStrings, "(?, ?, ?, ?, ?, ?, ?, ?)")
-		valueArgs = append(valueArgs, m.TsCode, m.TopicID, m.Source, m.TopicName, m.HitCount, m.LastSeenDate, m.FirstSeenDate, now)
+		valueStrings = append(valueStrings, "(?, ?, ?, ?, ?, ?, ?, ?, ?)")
+		valueArgs = append(valueArgs, m.TsCode, m.TopicID, m.Source, m.TopicName, m.Category, m.HitCount, m.LastSeenDate, m.FirstSeenDate, now)
 	}
 
-	sql := "INSERT INTO stock_topic_relations (ts_code, topic_id, source, topic_name, hit_count, last_seen_date, first_seen_date, updated_at) VALUES " +
+	sql := "INSERT INTO stock_topic_relations (ts_code, topic_id, source, topic_name, category, hit_count, last_seen_date, first_seen_date, updated_at) VALUES " +
 		joinStrings(valueStrings) +
 		" ON CONFLICT (ts_code, topic_id) DO UPDATE SET " +
 		"topic_name = EXCLUDED.topic_name," +
+		"category = EXCLUDED.category," +
 		"hit_count = stock_topic_relations.hit_count + EXCLUDED.hit_count," +
 		"last_seen_date = GREATEST(stock_topic_relations.last_seen_date, EXCLUDED.last_seen_date)," +
 		"updated_at = NOW()"

@@ -35,14 +35,19 @@ func (s *CrawlerServiceImpl) CrawlDate(ctx context.Context, date string) error {
 
 	topicRepo := db.NewTopicRepository()
 	mappingRepo := db.NewStockTopicRelationRepository()
-	synonymRepo := db.NewSynonymRepository()
+	topicDictRepo := db.NewTopicDictionaryRepository()
+
+	topicDictMap, err := topicDictRepo.GetAllMap(ctx)
+	if err != nil {
+		logger.Warn("load topic_dictionary failed, using raw topic names", zap.Error(err))
+		topicDictMap = make(map[string]dal_model.TopicDictionary)
+	}
 
 	for _, field := range data {
 		topicName := field.Name
 
-		normalized, err := synonymRepo.GetBySynonym(ctx, topicName)
-		if err == nil && normalized != nil {
-			topicName = normalized.Synonym
+		if dict, ok := topicDictMap[field.Name]; ok {
+			topicName = dict.NormalizedName
 		}
 
 		now := time.Now()

@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS topics (
     is_active         BOOLEAN         NOT NULL DEFAULT TRUE,
     created_at        TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
     updated_at        TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
+    category          VARCHAR(32),
     CONSTRAINT uq_topics_name UNIQUE (name)
 );
 

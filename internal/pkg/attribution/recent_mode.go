@@ -24,6 +24,7 @@ func (s *RecentStrategy) RunAttribution(ctx context.Context, input AttributionIn
 		scores = append(scores, TopicScore{
 			TopicID:      m.TopicID,
 			TopicName:    m.TopicName,
+			Category:     m.Category,
 			BindStrength: float64(m.HitCount),
 			RecencyScore: 0,
 			TotalScore:   0,

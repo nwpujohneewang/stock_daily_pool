@@ -45,9 +45,9 @@ func FetchFieldData(ctx context.Context, date string) ([]FieldData, error) {
 		return nil, fmt.Errorf("create request: %w", err)
 	}
 
-	req.Header.Set("Cookie", "SESSION=ZjY3ZTZkNjgtNDAyMC00YmNmLTlkMGMtZWZjOGJmZGExMjVm; Hm_lvt_58aa18061df7855800f2a1b32d6da7f4=1773930659; Hm_lpvt_58aa18061df7855800f2a1b32d6da7f4=1774008841")
-	req.Header.Set("Token", "17ea9cca36ab5445eda0ec3eda0773f4")
-	req.Header.Set("Timestamp", "1774008851872")
+	req.Header.Set("Cookie", "SESSION=ZjY3ZTZkNjgtNDAyMC00YmNmLTlkMGMtZWZjOGJmZGExMjVm; Hm_lvt_58aa18061df7855800f2a1b32d6da7f4=1773930659,1774175854,1774273568; Hm_lpvt_58aa18061df7855800f2a1b32d6da7f4=1774273568")
+	req.Header.Set("Token", "f9874c0479c81090b846e5f336afb831")
+	req.Header.Set("Timestamp", "1774364828004")
 
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Platform", "3")

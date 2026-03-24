@@ -60,7 +60,7 @@ func (r TopicRepoImpl) Upsert(ctx context.Context, topic *dal_model.Topic) error
 	return PostgresStockDB(ctx).Clauses(clause.OnConflict{
 		Columns: []clause.Column{{Name: "name"}},
 		DoUpdates: clause.AssignmentColumns([]string{
-			"jiuyan_field_id", "first_seen_date", "last_seen_date",
+			"category", "jiuyan_field_id", "first_seen_date", "last_seen_date",
 			"occurrence_count", "updated_at",
 		}),
 	}).Create(topic).Error

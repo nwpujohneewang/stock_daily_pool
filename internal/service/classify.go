@@ -189,6 +189,7 @@ func (s *ClassifyServiceImpl) ClassifyStockBatch(ctx context.Context, tsCodes []
 				mappings = append(mappings, dal_model.TopicRelation{
 					TopicID:      rel.TopicID,
 					TopicName:    name,
+					Category:     rel.Category,
 					Source:       rel.Source,
 					HitCount:     rel.HitCount,
 					LastSeenDate: rel.LastSeenDate.Format("2006-01-02"),

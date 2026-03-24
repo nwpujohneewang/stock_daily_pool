@@ -7,6 +7,7 @@ import (
 type Topic struct {
 	ID              int64      `gorm:"column:id"               json:"id"`
 	Name            string     `gorm:"column:name"             json:"name"`
+	Category        string     `gorm:"column:category"         json:"category"`
 	Source          string     `gorm:"column:source"            json:"source"`
 	JiuyanFieldID   *string    `gorm:"column:jiuyan_field_id"  json:"jiuyan_field_id,omitempty"`
 	FirstSeenDate   *time.Time `gorm:"column:first_seen_date"  json:"first_seen_date,omitempty"`
