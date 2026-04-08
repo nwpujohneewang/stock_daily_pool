@@ -2,6 +2,7 @@ package monitor
 
 import (
 	"context"
+	"stock/internal/pkg/utils"
 	"sync"
 	"time"
 
@@ -300,9 +301,12 @@ func (s *MonitorServiceImpl) Start(ctx context.Context) {
 			return
 		case <-ticker.C:
 			now := time.Now()
-			//if !s.isTradingTime(now) {
-			//	continue
-			//}
+			if !utils.IsTradingDay(now) {
+				continue
+			}
+			if !s.isTradingTime(now) {
+				continue
+			}
 			date := now.Format("2006-01-02")
 			if err := s.ProcessTick(ctx, date); err != nil {
 				logger.Warn("process tick failed", zap.Error(err))
