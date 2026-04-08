@@ -2,10 +2,11 @@ package redis
 
 import (
 	"context"
-	"fmt"
 	"stock/config"
+	"stock/internal/pkg/logger"
 
 	"github.com/redis/go-redis/v9"
+	"go.uber.org/zap"
 )
 
 var globalClient *redis.Client
@@ -20,9 +21,9 @@ func Init() {
 
 	ctx := context.Background()
 	if err := globalClient.Ping(ctx).Err(); err != nil {
-		fmt.Printf("Warning: failed to connect to redis: %v\n", err)
+		logger.Warn("failed to connect to redis", zap.Error(err))
 	} else {
-		fmt.Println("Redis connected successfully")
+		logger.Info("redis connected successfully")
 	}
 }
 

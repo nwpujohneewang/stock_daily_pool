@@ -11,6 +11,7 @@ type QuoteCacheInterface interface {
 	Get(ctx context.Context, tsCode string) (*dal_model.StockQuote, error)
 	Set(ctx context.Context, quote *dal_model.StockQuote) error
 	Delete(ctx context.Context, tsCode string) error
+	GetAll(ctx context.Context) ([]*dal_model.StockQuote, error)
 }
 
 var _ QuoteCacheInterface = (*QuoteCacheImpl)(nil)
@@ -19,6 +20,18 @@ type QuoteCacheImpl struct{}
 
 func NewQuoteCache() *QuoteCacheImpl {
 	return &QuoteCacheImpl{}
+}
+
+var shanghaiLoc = func() *time.Location {
+	loc, err := time.LoadLocation("Asia/Shanghai")
+	if err != nil {
+		return time.FixedZone("CST", 8*3600)
+	}
+	return loc
+}()
+
+func nowShanghai() time.Time {
+	return time.Now().In(shanghaiLoc)
 }
 
 func (c QuoteCacheImpl) Get(ctx context.Context, tsCode string) (*dal_model.StockQuote, error) {
@@ -52,8 +65,8 @@ func (c QuoteCacheImpl) Get(ctx context.Context, tsCode string) (*dal_model.Stoc
 	}
 	if v, ok := data["update_time"]; ok {
 		if t, err := time.Parse("15:04:05", v); err == nil {
-			now := time.Now()
-			quote.UpdateTime = time.Date(now.Year(), now.Month(), now.Day(), t.Hour(), t.Minute(), t.Second(), 0, time.Local)
+			now := nowShanghai()
+			quote.UpdateTime = time.Date(now.Year(), now.Month(), now.Day(), t.Hour(), t.Minute(), t.Second(), 0, shanghaiLoc)
 		}
 	}
 
@@ -79,4 +92,37 @@ func (c QuoteCacheImpl) Set(ctx context.Context, quote *dal_model.StockQuote) er
 func (c QuoteCacheImpl) Delete(ctx context.Context, tsCode string) error {
 	key := fmt.Sprintf("rt:quote:%s", tsCode)
 	return RedisClient(ctx).Del(ctx, key).Err()
+}
+
+func (c QuoteCacheImpl) GetAll(ctx context.Context) ([]*dal_model.StockQuote, error) {
+	var quotes []*dal_model.StockQuote
+	var cursor uint64
+	pattern := "rt:quote:*"
+
+	for {
+		keys, nextCursor, err := RedisClient(ctx).Scan(ctx, cursor, pattern, 100).Result()
+		if err != nil {
+			return nil, err
+		}
+
+		for _, key := range keys {
+			// Extract ts_code from key "rt:quote:{ts_code}"
+			tsCode := key[9:] // len("rt:quote:") = 9
+
+			quote, err := c.Get(ctx, tsCode)
+			if err != nil {
+				continue
+			}
+			if quote != nil {
+				quotes = append(quotes, quote)
+			}
+		}
+
+		cursor = nextCursor
+		if cursor == 0 {
+			break
+		}
+	}
+
+	return quotes, nil
 }

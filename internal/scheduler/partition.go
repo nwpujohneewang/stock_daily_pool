@@ -9,6 +9,12 @@ import (
 	"gorm.io/gorm"
 )
 
+type partitionSpec struct {
+	name      string
+	startDate string
+	endDate   string
+}
+
 type PartitionManager struct {
 	db     *gorm.DB
 	table  string
@@ -23,77 +29,59 @@ func NewPartitionManager(db *gorm.DB, table string) *PartitionManager {
 	}
 }
 
-func (p *PartitionManager) EnsureNextMonthPartition(ctx context.Context) error {
-	now := time.Now()
-	nextMonth := now.AddDate(0, 1, 1)
-	year := nextMonth.Year()
-	month := int(nextMonth.Month())
-
-	partitionName := fmt.Sprintf("%s_%04d_%02d", p.table, year, month)
-	startDate := fmt.Sprintf("%04d-%02d-01", year, month)
-	endDate := fmt.Sprintf("%04d-%02d-01", year, month+1)
-
-	if month == 12 {
-		endDate = fmt.Sprintf("%04d-01-01", year+1)
+func partitionSpecForDate(table string, target time.Time) partitionSpec {
+	start := time.Date(target.Year(), target.Month(), 1, 0, 0, 0, 0, target.Location())
+	end := start.AddDate(0, 1, 0)
+	return partitionSpec{
+		name:      fmt.Sprintf("%s_%04d_%02d", table, start.Year(), int(start.Month())),
+		startDate: start.Format("2006-01-02"),
+		endDate:   end.Format("2006-01-02"),
 	}
+}
 
+func (p *PartitionManager) ensurePartition(ctx context.Context, spec partitionSpec) error {
 	err := p.db.WithContext(ctx).Exec(fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS %s
 		PARTITION OF %s
 		FOR VALUES FROM ('%s') TO ('%s')
-	`, partitionName, p.table, startDate, endDate)).Error
-
+	`, spec.name, p.table, spec.startDate, spec.endDate)).Error
 	if err != nil {
-		return fmt.Errorf("create partition %s: %w", partitionName, err)
+		return fmt.Errorf("create partition %s: %w", spec.name, err)
 	}
-
-	p.logger.Printf("partition %s created", partitionName)
+	p.logger.Printf("partition %s created", spec.name)
 	return nil
+}
+
+func (p *PartitionManager) EnsureMonthPartition(ctx context.Context, target time.Time) error {
+	return p.ensurePartition(ctx, partitionSpecForDate(p.table, target))
+}
+
+func (p *PartitionManager) EnsureNextMonthPartition(ctx context.Context) error {
+	now := time.Now()
+	nextMonth := now.AddDate(0, 1, 1)
+	return p.EnsureMonthPartition(ctx, nextMonth)
 }
 
 func (p *PartitionManager) CreatePartitionForYear(ctx context.Context, year int) error {
 	for month := 1; month <= 12; month++ {
-		partitionName := fmt.Sprintf("%s_%04d_%02d", p.table, year, month)
-		startDate := fmt.Sprintf("%04d-%02d-01", year, month)
-		var endDate string
-		if month == 12 {
-			endDate = fmt.Sprintf("%04d-01-01", year+1)
-		} else {
-			endDate = fmt.Sprintf("%04d-%02d-01", year, month+1)
-		}
-
-		err := p.db.WithContext(ctx).Exec(fmt.Sprintf(`
-			CREATE TABLE IF NOT EXISTS %s
-			PARTITION OF %s
-			FOR VALUES FROM ('%s') TO ('%s')
-		`, partitionName, p.table, startDate, endDate)).Error
-
-		if err != nil {
-			return fmt.Errorf("create partition %s: %w", partitionName, err)
+		target := time.Date(year, time.Month(month), 1, 0, 0, 0, 0, time.Local)
+		if err := p.EnsureMonthPartition(ctx, target); err != nil {
+			return err
 		}
 	}
 	return nil
 }
 
 func (p *PartitionManager) ListPartitions(ctx context.Context) ([]string, error) {
-	rows, err := p.db.WithContext(ctx).Raw(fmt.Sprintf(`
-		SELECT relname FROM pg_class
-		WHERE relkind = 'r'
-		AND relname LIKE '%s_%%'
-		ORDER BY relname
-	`, p.table)).Rows()
+	var partitions []string
+	err := p.db.WithContext(ctx).Table("pg_class").
+		Select("relname").
+		Where("relkind = ?", "r").
+		Where("relname LIKE ?", p.table+"_%").
+		Order("relname").
+		Pluck("relname", &partitions).Error
 	if err != nil {
 		return nil, fmt.Errorf("list partitions: %w", err)
-	}
-	defer rows.Close()
-
-	var partitions []string
-	for rows.Next() {
-		var name string
-		if err := rows.Scan(&name); err != nil {
-			return nil, fmt.Errorf("scan partition: %w", err)
-		}
-		partitions = append(partitions, name)
 	}
 	return partitions, nil
 }

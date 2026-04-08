@@ -1,6 +1,8 @@
 package logger
 
 import (
+	"fmt"
+	"log"
 	"os"
 
 	"go.uber.org/zap"
@@ -8,6 +10,7 @@ import (
 )
 
 var Log *zap.Logger
+var undoStdLog func()
 
 func Info(msg string, fields ...zap.Field) {
 	if Log != nil {
@@ -74,15 +77,16 @@ func Init(level, format, output string) error {
 	} else if output == "stderr" {
 		writeSyncer = zapcore.AddSync(os.Stderr)
 	} else {
-		file, err := os.OpenFile(output, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-		if err != nil {
-			return err
-		}
-		writeSyncer = zapcore.AddSync(file)
+		return fmt.Errorf("unsupported log output %q: only stdout/stderr are allowed", output)
 	}
 
 	core := zapcore.NewCore(encoder, writeSyncer, zapLevel)
 	Log = zap.New(core, zap.AddCaller(), zap.AddCallerSkip(1), zap.AddStacktrace(zapcore.ErrorLevel))
+	if undoStdLog != nil {
+		undoStdLog()
+	}
+	log.SetFlags(0)
+	undoStdLog = zap.RedirectStdLog(Log)
 
 	return nil
 }

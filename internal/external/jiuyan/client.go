@@ -8,6 +8,10 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"stock/internal/pkg/logger"
+
+	"go.uber.org/zap"
 )
 
 type FieldData struct {
@@ -35,6 +39,11 @@ type ActionDetail struct {
 }
 
 func FetchFieldData(ctx context.Context, date string) ([]FieldData, error) {
+	// Use default or environment values if needed, but here we just call the parameterized version with defaults
+	return FetchFieldDataWithParams(ctx, date, "f9874c0479c81090b846e5f336afb831", "SESSION=ZjY3ZTZkNjgtNDAyMC00YmNmLTlkMGMtZWZjOGJmZGExMjVm; Hm_lvt_58aa18061df7855800f2a1b32d6da7f4=1773930659,1774175854,1774273568; Hm_lpvt_58aa18061df7855800f2a1b32d6da7f4=1774273568", "1774364828004")
+}
+
+func FetchFieldDataWithParams(ctx context.Context, date, token, cookie, timestamp string) ([]FieldData, error) {
 	url := "https://app.jiuyangongshe.com/jystock-app/api/v1/action/field"
 
 	reqBody := map[string]interface{}{"date": date, "pc": 1}
@@ -45,9 +54,9 @@ func FetchFieldData(ctx context.Context, date string) ([]FieldData, error) {
 		return nil, fmt.Errorf("create request: %w", err)
 	}
 
-	req.Header.Set("Cookie", "SESSION=ZjY3ZTZkNjgtNDAyMC00YmNmLTlkMGMtZWZjOGJmZGExMjVm; Hm_lvt_58aa18061df7855800f2a1b32d6da7f4=1773930659,1774175854,1774273568; Hm_lpvt_58aa18061df7855800f2a1b32d6da7f4=1774273568")
-	req.Header.Set("Token", "f9874c0479c81090b846e5f336afb831")
-	req.Header.Set("Timestamp", "1774364828004")
+	req.Header.Set("Cookie", cookie)
+	req.Header.Set("Token", token)
+	req.Header.Set("Timestamp", timestamp)
 
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Platform", "3")
@@ -78,10 +87,10 @@ func FetchFieldData(ctx context.Context, date string) ([]FieldData, error) {
 		return nil, fmt.Errorf("read body: %w", err)
 	}
 
-	fmt.Println(string(body))
-
 	var raw jiuyanResponse
 	if err := json.Unmarshal(body, &raw); err != nil {
+		// Avoid logging full response body (may contain large or sensitive content)
+		logger.Warn("decode jiuyan response failed", zap.Error(err))
 		return nil, fmt.Errorf("decode response: %w", err)
 	}
 

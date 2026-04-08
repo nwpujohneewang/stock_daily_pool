@@ -36,6 +36,7 @@ type DailyStockPool struct {
 func (DailyStockPool) TableName() string { return "daily_stock_pool" }
 
 const (
-	PoolTypeLimitUp = 1
-	PoolTypeAbove5  = 2
+	PoolTypeLimitUp         = 1
+	PoolTypeAbove5          = 2
+	PoolTypeYesterdayStrong = 3
 )

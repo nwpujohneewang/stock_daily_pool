@@ -11,7 +11,11 @@ type RecentStrategy struct{}
 func (s *RecentStrategy) Name() string { return "recent" }
 
 func (s *RecentStrategy) RunAttribution(ctx context.Context, input AttributionInput) (AttributionOutput, error) {
-	today, _ := time.Parse("2006-01-02", input.Date)
+	// 兼容两种日期格式: "2006-01-02" 和 "20060102"
+	today, err := time.Parse("2006-01-02", input.Date)
+	if err != nil {
+		today, _ = time.Parse("20060102", input.Date)
+	}
 
 	var scores []TopicScore
 	for _, m := range input.TopicRelations {

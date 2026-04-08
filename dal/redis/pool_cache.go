@@ -15,6 +15,8 @@ type PoolCacheInterface interface {
 	GetAbove5Members(ctx context.Context, date string) ([]string, error)
 	SetFirstLimitTime(ctx context.Context, date, tsCode, limitTime string) error
 	GetFirstLimitTime(ctx context.Context, date, tsCode string) (string, error)
+	AddLimitUpBatch(ctx context.Context, date string, tsCodes []string) error
+	AddAbove5Batch(ctx context.Context, date string, tsCodes []string) error
 }
 
 var _ PoolCacheInterface = (*PoolCacheImpl)(nil)
@@ -28,6 +30,18 @@ func NewPoolCache() *PoolCacheImpl {
 func (c PoolCacheImpl) AddLimitUp(ctx context.Context, date, tsCode string) error {
 	key := fmt.Sprintf("pool:limit_up:%s", date)
 	return RedisClient(ctx).SAdd(ctx, key, tsCode).Err()
+}
+
+func (c PoolCacheImpl) AddLimitUpBatch(ctx context.Context, date string, tsCodes []string) error {
+	if len(tsCodes) == 0 {
+		return nil
+	}
+	key := fmt.Sprintf("pool:limit_up:%s", date)
+	members := make([]interface{}, len(tsCodes))
+	for i, code := range tsCodes {
+		members[i] = code
+	}
+	return RedisClient(ctx).SAdd(ctx, key, members...).Err()
 }
 
 func (c PoolCacheImpl) RemoveLimitUp(ctx context.Context, date, tsCode string) error {
@@ -48,6 +62,18 @@ func (c PoolCacheImpl) IsLimitUp(ctx context.Context, date, tsCode string) (bool
 func (c PoolCacheImpl) AddAbove5(ctx context.Context, date, tsCode string) error {
 	key := fmt.Sprintf("pool:above5:%s", date)
 	return RedisClient(ctx).SAdd(ctx, key, tsCode).Err()
+}
+
+func (c PoolCacheImpl) AddAbove5Batch(ctx context.Context, date string, tsCodes []string) error {
+	if len(tsCodes) == 0 {
+		return nil
+	}
+	key := fmt.Sprintf("pool:above5:%s", date)
+	members := make([]interface{}, len(tsCodes))
+	for i, code := range tsCodes {
+		members[i] = code
+	}
+	return RedisClient(ctx).SAdd(ctx, key, members...).Err()
 }
 
 func (c PoolCacheImpl) RemoveAbove5(ctx context.Context, date, tsCode string) error {

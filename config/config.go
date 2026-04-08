@@ -2,6 +2,8 @@ package config
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -45,16 +47,10 @@ type DatabaseConfig struct {
 	ConnMaxIdleTime int    `yaml:"conn_max_idle_time"`
 }
 
-// RedisConfig is Redis configuration
 type RedisConfig struct {
-	Addr         string `yaml:"addr"`
-	Password     string `yaml:"password"`
-	DB           int    `yaml:"db"`
-	PoolSize     int    `yaml:"pool_size"`
-	MinIdleConns int    `yaml:"min_idle_conns"`
-	DialTimeout  int    `yaml:"dial_timeout"`
-	ReadTimeout  int    `yaml:"read_timeout"`
-	WriteTimeout int    `yaml:"write_timeout"`
+	Addr     string `yaml:"addr"`
+	Password string `yaml:"password"`
+	DB       int    `yaml:"db"`
 }
 
 // TushareConfig is Tushare API configuration
@@ -94,13 +90,12 @@ type CircuitBreakerConfig struct {
 
 // MonitorConfig is monitor configuration
 type MonitorConfig struct {
-	IntervalSec       int                  `yaml:"interval_sec"`
-	TradingStart      string               `yaml:"trading_start"`
-	TradingEnd        string               `yaml:"trading_end"`
-	StrongThreshold   float64              `yaml:"strong_threshold"`
-	ShardCount        int                  `yaml:"shard_count"`
-	ErrorThresholdPct int                  `yaml:"error_threshold_pct"`
-	CircuitBreaker    CircuitBreakerConfig `yaml:"circuit_breaker"`
+	IntervalSec       int                  `yaml:"interval_sec" mapstructure:"interval_sec"`
+	TradingStart      string               `yaml:"trading_start" mapstructure:"trading_start"`
+	TradingEnd        string               `yaml:"trading_end" mapstructure:"trading_end"`
+	StrongThreshold   float64              `yaml:"strong_threshold" mapstructure:"strong_threshold"`
+	ErrorThresholdPct int                  `yaml:"error_threshold_pct" mapstructure:"error_threshold_pct"`
+	CircuitBreaker    CircuitBreakerConfig `yaml:"circuit_breaker" mapstructure:"circuit_breaker"`
 }
 
 // WebSocketConfig is WebSocket configuration
@@ -115,14 +110,15 @@ type WebSocketConfig struct {
 
 // SchedulerConfig is scheduler configuration
 type SchedulerConfig struct {
-	PreMarketInit   string `yaml:"pre_market_init"`
-	RealtimeCollect string `yaml:"realtime_collect"`
-	JiuyanSync      string `yaml:"jiuyan_sync"`
-	ConceptSync     string `yaml:"concept_sync"`
-	ClosingSnapshot string `yaml:"closing_snapshot"`
-	HistoryCleanup  string `yaml:"history_cleanup"`
-	CacheWarmup     string `yaml:"cache_warmup"`
-	LLMBatch        string `yaml:"llm_batch"`
+	PreMarketInit      string `yaml:"pre_market_init" mapstructure:"pre_market_init"`
+	RealtimeCollect    string `yaml:"realtime_collect" mapstructure:"realtime_collect"`
+	JiuyanSync         string `yaml:"jiuyan_sync" mapstructure:"jiuyan_sync"`
+	ConceptSync        string `yaml:"concept_sync" mapstructure:"concept_sync"`
+	ClosingSnapshot    string `yaml:"closing_snapshot" mapstructure:"closing_snapshot"`
+	HistoryCleanup     string `yaml:"history_cleanup" mapstructure:"history_cleanup"`
+	CacheWarmup        string `yaml:"cache_warmup" mapstructure:"cache_warmup"`
+	LLMBatch           string `yaml:"llm_batch" mapstructure:"llm_batch"`
+	LimitDetailRefresh string `yaml:"limit_detail_refresh" mapstructure:"limit_detail_refresh"`
 }
 
 // RetryConfig is retry configuration
@@ -143,35 +139,98 @@ func (c *RetryConfig) MaxDelay() time.Duration {
 
 // LogConfig is log configuration
 type LogConfig struct {
-	Level  string `yaml:"level"`
-	Format string `yaml:"format"`
-	Output string `yaml:"output"`
+	Level  string `yaml:"level" mapstructure:"level"`
+	Format string `yaml:"format" mapstructure:"format"`
+	Output string `yaml:"output" mapstructure:"output"`
 }
 
 // DSN returns a pgx-compatible connection string.
 func (c *DatabaseConfig) DSN() string {
-	return fmt.Sprintf(
-		"host=%s port=%d user=%s password=%s dbname=%s sslmode=%s TimeZone=%s",
-		c.Host, c.Port, c.User, c.Password, c.DBName, c.SSLMode, c.Timezone,
+	dsn := fmt.Sprintf(
+		"host=%s port=%d user=%s dbname=%s sslmode=%s TimeZone=%s search_path=public",
+		c.Host, c.Port, c.User, c.DBName, c.SSLMode, c.Timezone,
 	)
+	if c.Password != "" {
+		dsn = fmt.Sprintf(
+			"host=%s port=%d user=%s password=%s dbname=%s sslmode=%s TimeZone=%s search_path=public",
+			c.Host, c.Port, c.User, c.Password, c.DBName, c.SSLMode, c.Timezone,
+		)
+	}
+	return dsn
 }
 
 var GlobalConfig *AppConfig
 
 // Init loads configuration from config.yaml into GlobalConfig.
 func Init(cfgPath string) error {
-	viper.SetConfigFile(cfgPath)
-	viper.AutomaticEnv()
-	viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
-
-	if err := viper.ReadInConfig(); err != nil {
-		return fmt.Errorf("read config: %w", err)
+	cfg, err := loadConfig(cfgPath)
+	if err != nil {
+		return err
 	}
-
-	GlobalConfig = &AppConfig{}
-	if err := viper.Unmarshal(GlobalConfig); err != nil {
-		return fmt.Errorf("unmarshal config: %w", err)
-	}
-
+	GlobalConfig = cfg
 	return nil
+}
+
+func loadConfig(cfgPath string) (*AppConfig, error) {
+	v := viper.New()
+	v.SetConfigFile(resolveConfigPath(cfgPath))
+	v.AutomaticEnv()
+	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
+	bindEnvOverrides(v)
+
+	if err := v.ReadInConfig(); err != nil {
+		return nil, fmt.Errorf("read config: %w", err)
+	}
+
+	cfg := &AppConfig{}
+	if err := v.Unmarshal(cfg); err != nil {
+		return nil, fmt.Errorf("unmarshal config: %w", err)
+	}
+	return cfg, nil
+}
+
+func resolveConfigPath(cfgPath string) string {
+	if _, err := os.Stat(cfgPath); err == nil {
+		return cfgPath
+	}
+	ext := filepath.Ext(cfgPath)
+	if ext == "" {
+		return cfgPath
+	}
+	base := strings.TrimSuffix(cfgPath, ext)
+	fallback := base + ".example" + ext
+	if _, err := os.Stat(fallback); err == nil {
+		return fallback
+	}
+	return cfgPath
+}
+
+func bindEnvOverrides(v *viper.Viper) {
+	envMap := map[string]string{
+		"server.port":       "SERVER_PORT",
+		"server.mode":       "SERVER_MODE",
+		"server.apiKey":     "SERVER_API_KEY",
+		"database.host":     "DATABASE_HOST",
+		"database.port":     "DATABASE_PORT",
+		"database.user":     "DATABASE_USER",
+		"database.password": "DATABASE_PASSWORD",
+		"database.dbname":   "DATABASE_DBNAME",
+		"database.sslmode":  "DATABASE_SSLMODE",
+		"database.timezone": "DATABASE_TIMEZONE",
+		"redis.addr":        "REDIS_ADDR",
+		"redis.password":    "REDIS_PASSWORD",
+		"redis.db":          "REDIS_DB",
+		"tushare.baseUrl":   "TUSHARE_BASE_URL",
+		"tushare.token":     "TUSHARE_TOKEN",
+		"jiuyan.baseUrl":    "JIUYAN_BASE_URL",
+		"jiuyan.apiKey":     "JIUYAN_API_KEY",
+		"llm.apiKey":        "LLM_API_KEY",
+		"llm.apiUrl":        "LLM_API_URL",
+		"log.level":         "LOG_LEVEL",
+		"log.format":        "LOG_FORMAT",
+		"log.output":        "LOG_OUTPUT",
+	}
+	for key, env := range envMap {
+		_ = v.BindEnv(key, env)
+	}
 }

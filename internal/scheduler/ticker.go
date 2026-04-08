@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"stock/internal/pkg/logger"
+	"stock/internal/pkg/utils"
 	"stock/internal/service"
 
 	"go.uber.org/zap"
@@ -56,7 +57,7 @@ func (t *Ticker) isTradingTime() bool {
 	hour := now.Hour()
 	min := now.Minute()
 
-	if now.Weekday() == time.Saturday || now.Weekday() == time.Sunday {
+	if !utils.IsTradingDay(now) {
 		return false
 	}
 

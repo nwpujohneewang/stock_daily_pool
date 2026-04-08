@@ -1,0 +1,23 @@
+@import "tailwindcss";
+
+@theme {
+  --color-horizon-bg: #F4F7FE;
+  --color-horizon-brand: #4318FF;
+  --color-horizon-brand-hover: #3311DB;
+  --color-horizon-text-primary: #2B3674;
+  --color-horizon-text-secondary: #A3AED0;
+
+  --shadow-horizon-card: 0px 18px 40px rgba(112, 144, 176, 0.12);
+}
+
+:root {
+  --bg-primary: var(--color-horizon-bg);
+  --bg-secondary: #ffffff;
+  --text-primary: var(--color-horizon-text-primary);
+  --text-secondary: var(--color-horizon-text-secondary);
+  --border-color: #e2e8f0;
+}
+
+body {
+  @apply bg-[var(--bg-primary)] text-[var(--text-primary)] font-sans antialiased;
+}

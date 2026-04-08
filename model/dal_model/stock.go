@@ -24,6 +24,8 @@ type StockBasicInfo struct {
 	IsST      bool       `gorm:"column:is_st"      json:"is_st"`
 	ListDate  *time.Time `gorm:"column:list_date"  json:"list_date,omitempty"`
 	Status    int16      `gorm:"column:status"     json:"status"`
+	TotalMv   *float64   `gorm:"column:total_mv"   json:"total_mv,omitempty"`
+	CircMv    *float64   `gorm:"column:circ_mv"    json:"circ_mv,omitempty"`
 	CreatedAt time.Time  `gorm:"column:created_at" json:"created_at"`
 	UpdatedAt time.Time  `gorm:"column:updated_at" json:"updated_at"`
 }

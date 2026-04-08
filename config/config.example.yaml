@@ -1,0 +1,37 @@
+server:
+  port: 8080
+  mode: release
+  apiKey: ""
+database:
+  host: 127.0.0.1
+  port: 5432
+  user: ""
+  password: ""
+  dbname: ""
+  sslmode: disable
+  timezone: Asia/Shanghai
+redis:
+  addr: 127.0.0.1:6379
+  password: ""
+  db: 0
+log:
+  level: info
+  format: console
+  output: stdout
+tushare:
+  baseUrl: "http://api.tushare.pro"
+  token: ""
+monitor:
+  interval_sec: 10
+  trading_start: "09:15"
+  trading_end: "15:10"
+  strong_threshold: 9.5
+  shard_count: 16
+  error_threshold_pct: 5
+  circuit_breaker:
+    consecutive_failures: 5
+    cooldown_sec: 60
+    half_open_requests: 2
+scheduler:
+  pre_market_init: "0 0 9 * * 1-5"
+  closing_snapshot: "0 5 15 * * 1-5"

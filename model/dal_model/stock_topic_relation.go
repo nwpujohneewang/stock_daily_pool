@@ -28,5 +28,6 @@ type TopicRelation struct {
 	Source       string  `json:"source"`
 	HitCount     int     `json:"hit_count"`
 	LastSeenDate string  `json:"last_seen_date"`
+	UpdatedAt    string  `json:"updated_at"`
 	Confidence   float64 `json:"confidence"`
 }

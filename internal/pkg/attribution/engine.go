@@ -3,7 +3,7 @@ package attribution
 import (
 	"context"
 	"encoding/json"
-	"stock/dal/redis"
+	"stock/dal/cache"
 	"time"
 )
 
@@ -65,7 +65,7 @@ func CalcRecencyScore(lastSeenDate time.Time, today time.Time) float64 {
 
 // getTopicActivityMap 从 Redis 读取当天热点活跃度。
 func getTopicActivityMap(ctx context.Context, date string) (map[int]int, error) {
-	activityCache := redis.NewActivityCache()
+	activityCache := cache.NewActivityCache()
 	result, err := activityCache.GetAllTopicLimitCounts(ctx, date)
 	if err != nil {
 		return nil, err
@@ -84,7 +84,7 @@ type limitTimeRecord struct {
 
 // getTopicLimitTimes 获取某日某热点的涨停时间序列。
 func getTopicLimitTimes(ctx context.Context, date string, topicID int64) ([]time.Time, error) {
-	activityCache := redis.NewActivityCache()
+	activityCache := cache.NewActivityCache()
 	rawTimes, err := activityCache.GetLimitTimes(ctx, date, topicID)
 	if err != nil {
 		return nil, err

@@ -2,14 +2,18 @@ package scheduler
 
 import (
 	"context"
-	"stock/dal/redis"
+	"stock/config"
+	"stock/dal/cache"
+	"stock/dal/repo"
+	"stock/internal/external/tushare"
+	"stock/internal/pkg/logger"
+	"stock/internal/pkg/utils"
+	"stock/internal/service"
+	"stock/internal/service/snapshot"
+	"stock/internal/service/stock"
 	"time"
 
 	"github.com/robfig/cron/v3"
-	"stock/config"
-	"stock/dal/db"
-	"stock/internal/pkg/logger"
-	"stock/internal/service"
 
 	"go.uber.org/zap"
 )
@@ -32,14 +36,18 @@ func NewScheduler(
 }
 
 func (s *Scheduler) Setup() {
-	s.cron.AddFunc(s.cfg.PreMarketInit, s.preMarketInit)
-	s.cron.AddFunc(s.cfg.RealtimeCollect, s.realtimeCollect)
-	s.cron.AddFunc(s.cfg.JiuyanSync, s.jiuyanSync)
-	s.cron.AddFunc(s.cfg.ConceptSync, s.conceptSync)
-	s.cron.AddFunc(s.cfg.ClosingSnapshot, s.closingSnapshot)
-	s.cron.AddFunc(s.cfg.CacheWarmup, s.cacheWarmup)
-	s.cron.AddFunc(s.cfg.HistoryCleanup, s.historyCleanup)
-	s.cron.AddFunc(s.cfg.LLMBatch, s.llmBatch)
+	if _, err := s.cron.AddFunc(s.cfg.PreMarketInit, s.preMarketInit); err != nil {
+		logger.Warn("register preMarketInit failed", zap.Error(err))
+	}
+	if _, err := s.cron.AddFunc(s.cfg.ClosingSnapshot, s.closingSnapshot); err != nil {
+		logger.Warn("register closingSnapshot failed", zap.Error(err))
+	}
+	if _, err := s.cron.AddFunc("0 0 23 * * 1-5", s.computeTopicStockCount); err != nil {
+		logger.Warn("register computeTopicStockCount failed", zap.Error(err))
+	}
+	if _, err := s.cron.AddFunc("0 0 16 * * 1-5", s.syncStockBasic); err != nil {
+		logger.Warn("register syncStockBasic failed", zap.Error(err))
+	}
 }
 
 func (s *Scheduler) Start() {
@@ -48,6 +56,26 @@ func (s *Scheduler) Start() {
 
 func (s *Scheduler) Stop() {
 	s.cron.Stop()
+}
+
+func (s *Scheduler) TriggerPreMarketInit() {
+	s.preMarketInit()
+}
+
+func (s *Scheduler) TriggerLoadYesterdayStrongPool() {
+	s.loadYesterdayStrongPool()
+}
+
+func (s *Scheduler) TriggerClosingSnapshot() {
+	s.closingSnapshot()
+}
+
+func (s *Scheduler) TriggerSyncStockBasic() {
+	s.syncStockBasic()
+}
+
+func (s *Scheduler) TriggerComputeTopicStockCount() {
+	s.computeTopicStockCount()
 }
 
 func (s *Scheduler) preMarketInit() {
@@ -60,11 +88,17 @@ func (s *Scheduler) preMarketInit() {
 
 	logger.Info("running pre-market init", zap.String("date", date))
 
-	poolCache := redis.NewPoolCache()
+	// Reset monitor daily state
+	if s.monitorService != nil {
+		s.monitorService.ResetClassifiedToday()
+		logger.Info("reset monitor daily state")
+	}
+
+	poolCache := cache.NewPoolCache()
 	_ = poolCache.RemoveLimitUp(ctx, getPrevDate(date), "")
 	_ = poolCache.RemoveAbove5(ctx, getPrevDate(date), "")
 
-	stockRepo := db.NewStockRepository()
+	stockRepo := repo.NewStockRepository()
 	stocks, err := stockRepo.GetActiveStocks(ctx)
 	if err != nil {
 		logger.Warn("get active stocks failed", zap.Error(err))
@@ -72,24 +106,27 @@ func (s *Scheduler) preMarketInit() {
 	}
 
 	logger.Info("loaded active stocks", zap.Int("count", len(stocks)))
-}
 
-func (s *Scheduler) realtimeCollect() {
-	ctx := context.Background()
-	now := time.Now()
-
-	if !isTradingDay(now) {
-		return
+	stockCache := cache.NewStockCache()
+	if err := stockCache.SetActiveStocks(ctx, stocks); err != nil {
+		logger.Warn("set active stocks cache failed", zap.Error(err))
 	}
 
-	if !s.isWithinTradingWindow(now) {
-		return
+	tsCodes := make([]string, 0, len(stocks))
+	for _, stock := range stocks {
+		if stock.TsCode != "" {
+			tsCodes = append(tsCodes, stock.TsCode)
+		}
+	}
+	if err := repo.NewStockTopicRelationRepository().WarmupByTsCodes(ctx, tsCodes); err != nil {
+		logger.Warn("warmup stock topic relations cache failed", zap.Error(err), zap.Int("count", len(tsCodes)))
 	}
 
-	date := now.Format("2006-01-02")
-	if err := s.monitorService.ProcessTick(ctx, date); err != nil {
-		logger.Warn("realtime collect failed", zap.Error(err))
+	if err := WarmupTopicStockCountCache(ctx); err != nil {
+		logger.Warn("warmup topic stock count cache failed", zap.Error(err))
 	}
+
+	s.loadYesterdayStrongPool()
 }
 
 func (s *Scheduler) isWithinTradingWindow(t time.Time) bool {
@@ -100,46 +137,120 @@ func (s *Scheduler) isWithinTradingWindow(t time.Time) bool {
 	return total >= start && total <= end
 }
 
-func (s *Scheduler) jiuyanSync() {
-	logger.Info("jiuyan sync task")
-}
-
-func (s *Scheduler) conceptSync() {
-	logger.Info("concept sync task")
-}
-
 func (s *Scheduler) closingSnapshot() {
-	date := time.Now().Format("2006-01-02")
+	ctx := context.Background()
+	loc, _ := time.LoadLocation("Asia/Shanghai")
+	date := time.Now().In(loc).Format("2006-01-02")
 
 	if !isTradingDay(time.Now()) {
 		return
 	}
 
-	logger.Info("closing snapshot", zap.String("date", date))
+	logger.Info("running closing snapshot", zap.String("date", date))
+
+	snapshotSvc := snapshot.NewSnapshotService()
+	if err := snapshotSvc.TakeSnapshot(ctx, date); err != nil {
+		logger.Error("closing snapshot failed", zap.Error(err))
+		return
+	}
+
+	logger.Info("closing snapshot completed", zap.String("date", date))
+}
+
+func (s *Scheduler) computeTopicStockCount() {
+	ctx := context.Background()
+	loc, _ := time.LoadLocation("Asia/Shanghai")
+	date := time.Now().In(loc).Format("2006-01-02")
+
+	if !isTradingDay(time.Now()) {
+		return
+	}
+
+	logger.Info("running topic stock count compute", zap.String("date", date))
+	if err := ComputeTopicStockCount(ctx); err != nil {
+		logger.Error("topic stock count compute failed", zap.Error(err))
+		return
+	}
+
+	logger.Info("topic stock count compute completed", zap.String("date", date))
 }
 
 func (s *Scheduler) cacheWarmup() {
 	logger.Info("cache warmup task")
 }
 
-func (s *Scheduler) historyCleanup() {
-	logger.Info("history cleanup task")
-}
+func (s *Scheduler) syncStockBasic() {
+	ctx := context.Background()
+	loc, _ := time.LoadLocation("Asia/Shanghai")
+	date := time.Now().In(loc).Format("2006-01-02")
 
-func (s *Scheduler) llmBatch() {
-	logger.Info("LLM batch task")
+	if !isTradingDay(time.Now()) {
+		return
+	}
+
+	logger.Info("running stock basic sync", zap.String("date", date))
+
+	cfg := config.GlobalConfig
+	tushareClient := tushare.NewClient(&cfg.Tushare, cfg.Retry)
+	svc := stock.NewStockService(tushareClient)
+
+	if err := svc.SyncStockBasic(ctx, date); err != nil {
+		logger.Error("stock basic sync failed", zap.Error(err))
+		return
+	}
+
+	logger.Info("stock basic sync completed", zap.String("date", date))
 }
 
 func isTradingDay(t time.Time) bool {
-	if t.Weekday() == time.Saturday || t.Weekday() == time.Sunday {
-		return false
-	}
-	return true
+	return utils.IsTradingDay(t)
 }
 
 func getPrevDate(date string) string {
 	t, _ := time.Parse("2006-01-02", date)
 	return t.AddDate(0, 0, -1).Format("2006-01-02")
+}
+
+func getPreviousTradingDay(t time.Time) time.Time {
+	return utils.PreviousTradingDay(t)
+}
+
+func (s *Scheduler) loadYesterdayStrongPool() {
+	ctx := context.Background()
+	loc, _ := time.LoadLocation("Asia/Shanghai")
+	today := time.Now().In(loc)
+	yesterday := getPreviousTradingDay(today)
+
+	logger.Info("loading yesterday strong pool",
+		zap.String("today", today.Format("2006-01-02")),
+		zap.String("yesterday", yesterday.Format("2006-01-02")))
+
+	snapshotRepo := repo.NewSnapshotRepository()
+	records, err := snapshotRepo.GetByDate(ctx, yesterday.Format("2006-01-02"))
+	if err != nil {
+		logger.Warn("get yesterday snapshot failed", zap.Error(err))
+		return
+	}
+
+	// Include both yesterday's limit-up and above-5% stocks in yesterday strong pool.
+	entries := make([]cache.YesterdayStrongEntry, 0, len(records))
+	for _, r := range records {
+		if r.ChangePct == nil {
+			continue
+		}
+		entries = append(entries, cache.YesterdayStrongEntry{
+			TsCode:             r.TsCode,
+			YesterdayChangePct: *r.ChangePct,
+		})
+	}
+
+	poolCache := cache.NewPoolCache()
+	if err := poolCache.SetYesterdayStrongMembers(ctx, today.Format("2006-01-02"), entries); err != nil {
+		logger.Error("set yesterday strong members failed", zap.Error(err))
+		return
+	}
+
+	logger.Info("loaded yesterday strong pool", zap.Int("count", len(entries)))
 }
 
 func (s *Scheduler) GetCron() *cron.Cron {

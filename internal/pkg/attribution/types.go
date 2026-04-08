@@ -32,6 +32,8 @@ var FilterTopics = []int64{
 	10589,
 	11273,
 	11326,
+	10884,
+	11081,
 }
 
 // AttributionStrategy 归因策略接口

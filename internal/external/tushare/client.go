@@ -5,8 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"go.uber.org/zap"
 	"io"
+	"math"
 	"net/http"
+	"stock/internal/pkg/logger"
 	"strings"
 	"time"
 
@@ -227,42 +230,44 @@ type QuoteItem struct {
 	TurnoverRate float64 `json:"turnover_rate"`
 }
 
-func (c *Client) RealtimeQuote(ctx context.Context, tsCodes []string) ([]QuoteItem, error) {
-	var allQuotes []QuoteItem
+func (c *Client) RealtimeQuoteAll(ctx context.Context) ([]QuoteItem, error) {
+	req := &TushareRequest{
+		APIName: "rt_k",
+		Params:  map[string]interface{}{"ts_code": "0*.SZ,3*.SZ,6*.SH,688*.SH"},
+		Fields:  "ts_code,pre_close,close,vol,amount",
+	}
 
-	for _, batch := range splitCodes(tsCodes, 50) {
-		req := &TushareRequest{
-			APIName: "realtime_quote",
-			Params:  map[string]interface{}{"ts_code": strings.Join(batch, ",")},
-			Fields:  "ts_code,pre_close,price,pct_chg,vol,amount,turnover_rate",
-		}
+	resp, err := c.doRequest(ctx, req)
+	if err != nil {
+		return nil, err
+	}
 
-		resp, err := c.doRequest(ctx, req)
-		if err != nil {
-			return allQuotes, err
-		}
+	if resp.Data == nil {
+		logger.Info("empty response from tuShare", zap.Any("msg", resp.Msg))
+		return nil, nil
+	}
 
-		if resp.Data == nil {
+	var results []QuoteItem
+	var over5 []QuoteItem
+	for _, item := range resp.Data.Items {
+		if len(item) < 5 {
 			continue
 		}
-
-		for _, item := range resp.Data.Items {
-			if len(item) < 7 {
-				continue
-			}
-			allQuotes = append(allQuotes, QuoteItem{
-				TsCode:       toString(item[0]),
-				PreClose:     toFloat64(item[1]),
-				Price:        toFloat64(item[2]),
-				PctChg:       toFloat64(item[3]),
-				Vol:          toInt64(item[4]),
-				Amount:       toFloat64(item[5]),
-				TurnoverRate: toFloat64(item[6]),
-			})
+		quoteItem := QuoteItem{
+			TsCode:   toString(item[0]),
+			PreClose: toFloat64(item[1]),
+			Price:    toFloat64(item[2]),
+			PctChg:   calPct(toFloat64(item[1]), toFloat64(item[2])),
+			Vol:      toInt64(item[3]),
+			Amount:   toFloat64(item[4]),
+		}
+		results = append(results, quoteItem)
+		if quoteItem.PctChg >= 5.0 {
+			over5 = append(over5, quoteItem)
 		}
 	}
 
-	return allQuotes, nil
+	return results, nil
 }
 
 type ConceptItem struct {
@@ -427,6 +432,99 @@ func (c *Client) DailyAll(ctx context.Context, tradeDate string) ([]*QuoteItem, 
 	return results, nil
 }
 
+// LimitListItem holds limit-up/down detail info from tushare limit_list_d API
+type LimitListItem struct {
+	TsCode     string // 股票代码 "000001.SZ"
+	Name       string // 股票名称
+	FirstTime  string // 首次封板时间 "09:31:05"
+	LastTime   string // 最后封板时间 "14:55:00"
+	LimitTimes int    // 连板数
+}
+
+// LimitListD 获取当天涨停股列表
+// tradeDate 格式: "20260329" (无连字符)
+func (c *Client) LimitListD(ctx context.Context, tradeDate string) ([]LimitListItem, error) {
+	req := &TushareRequest{
+		APIName: "limit_list_d",
+		Params: map[string]interface{}{
+			"trade_date": tradeDate,
+			"limit_type": "U",
+		},
+		Fields: "ts_code,name,first_time,last_time,limit_times",
+	}
+
+	resp, err := c.doRequest(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+
+	if resp.Data == nil {
+		return nil, nil
+	}
+
+	var results []LimitListItem
+	for _, item := range resp.Data.Items {
+		if len(item) < 5 {
+			continue
+		}
+		results = append(results, LimitListItem{
+			TsCode:     toString(item[0]),
+			Name:       toString(item[1]),
+			FirstTime:  formatTushareTime(toString(item[2])),
+			LastTime:   formatTushareTime(toString(item[3])),
+			LimitTimes: int(toInt64(item[4])),
+		})
+	}
+
+	return results, nil
+}
+
+// DailyBasicItem holds daily basic indicators from tushare daily_basic API
+type DailyBasicItem struct {
+	TsCode  string  // 股票代码 "000001.SZ"
+	TotalMv float64 // 总市值（万元）
+	CircMv  float64 // 流通市值（万元）
+}
+
+// DailyBasic 获取每日指标（市值等）
+// tradeDate 格式: "20260329" (无连字符)
+func (c *Client) DailyBasic(ctx context.Context, tradeDate string) ([]DailyBasicItem, error) {
+	if tradeDate == "" {
+		return nil, fmt.Errorf("trade_date is required")
+	}
+
+	req := &TushareRequest{
+		APIName: "daily_basic",
+		Params: map[string]interface{}{
+			"trade_date": tradeDate,
+		},
+		Fields: "ts_code,trade_date,total_mv,circ_mv",
+	}
+
+	resp, err := c.doRequest(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+
+	if resp.Data == nil {
+		return nil, nil
+	}
+
+	var results []DailyBasicItem
+	for _, item := range resp.Data.Items {
+		if len(item) < 4 {
+			continue
+		}
+		results = append(results, DailyBasicItem{
+			TsCode:  toString(item[0]),
+			TotalMv: toFloat64(item[2]),
+			CircMv:  toFloat64(item[3]),
+		})
+	}
+
+	return results, nil
+}
+
 func splitCodes(codes []string, size int) [][]string {
 	var result [][]string
 	for i := 0; i < len(codes); i += size {
@@ -437,6 +535,23 @@ func splitCodes(codes []string, size int) [][]string {
 		result = append(result, codes[i:end])
 	}
 	return result
+}
+
+// formatTushareTime converts tushare time format to HH:MM:SS
+// Input: "130830" -> Output: "13:08:30"
+// Input: "93339" -> Output: "09:33:39"
+func formatTushareTime(s string) string {
+	if s == "" {
+		return ""
+	}
+	// Pad to 6 digits if needed (e.g., "93339" -> "093339")
+	for len(s) < 6 {
+		s = "0" + s
+	}
+	if len(s) != 6 {
+		return s
+	}
+	return s[0:2] + ":" + s[2:4] + ":" + s[4:6]
 }
 
 func toString(v interface{}) string {
@@ -483,4 +598,10 @@ func toInt64(v interface{}) int64 {
 	default:
 		return 0
 	}
+}
+
+func calPct(pre, now float64) float64 {
+	raw := (now - pre) / pre * 100.0
+	rounded := math.Round(raw*100) / 100 // 四舍五入到两位小数
+	return rounded
 }

@@ -3,9 +3,9 @@ package scheduler
 import (
 	"context"
 	"log"
+	"stock/internal/pkg/utils"
+	"stock/internal/service/snapshot"
 	"time"
-
-	"stock/internal/service"
 )
 
 type DailyTask struct {
@@ -41,14 +41,10 @@ func (d *DailyTask) ConceptSync(ctx context.Context) error {
 func (d *DailyTask) ClosingSnapshot(ctx context.Context) error {
 	d.logger.Println("running closing snapshot")
 	date := time.Now().Format("2006-01-02")
-	svc := service.NewSnapshotService()
+	svc := snapshot.NewSnapshotService()
 	return svc.TakeSnapshot(ctx, date)
 }
 
 func (d *DailyTask) IsTradingDay() bool {
-	now := time.Now()
-	if now.Weekday() == time.Saturday || now.Weekday() == time.Sunday {
-		return false
-	}
-	return true
+	return utils.IsTradingDay(time.Now())
 }
