@@ -46,8 +46,6 @@ func setupRouter(cfg *config.AppConfig, h *handler.Handlers) *gin.Engine {
 	{
 		pool := api.Group("/pool")
 		{
-			//pool.GET("/limit-up", h.PoolHandler.GetLimitUp)
-			//pool.GET("/above5", h.PoolHandler.GetAbove5)
 			pool.GET("/reclassify", h.PoolHandler.ReclassifyByDate)
 		}
 

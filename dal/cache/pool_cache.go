@@ -19,7 +19,7 @@ type PoolCacheInterface interface {
 	RemoveAbove5(ctx context.Context, date, tsCode string) error
 	GetAbove5Members(ctx context.Context, date string) ([]string, error)
 	SetFirstLimitTime(ctx context.Context, date, tsCode, limitTime string) error
-	GetFirstLimitTime(ctx context.Context, date, tsCode string) (string, error)
+	GetFirstLimitTime(ctx context.Context, date string, tsCodes []string) (map[string]string, error)
 	AddLimitUpBatch(ctx context.Context, date string, tsCodes []string) error
 	RemoveLimitUpBatch(ctx context.Context, date string, tsCodes []string) error
 	AddAbove5Batch(ctx context.Context, date string, tsCodes []string) error
@@ -27,6 +27,7 @@ type PoolCacheInterface interface {
 	SetYesterdayStrongMembers(ctx context.Context, date string, entries []YesterdayStrongEntry) error
 	GetYesterdayStrongMembers(ctx context.Context, date string) ([]YesterdayStrongEntry, error)
 	IsYesterdayStrong(ctx context.Context, date, tsCode string) bool
+	GetAllFirstLimitTime(ctx context.Context, date string) (map[string]string, error)
 }
 
 var _ PoolCacheInterface = (*PoolCacheImpl)(nil)
@@ -238,18 +239,35 @@ func (c PoolCacheImpl) SetFirstLimitTime(ctx context.Context, date, tsCode, limi
 	return nil
 }
 
-func (c PoolCacheImpl) GetFirstLimitTime(ctx context.Context, date, tsCode string) (string, error) {
+func (c PoolCacheImpl) GetAllFirstLimitTime(ctx context.Context, date string) (map[string]string, error) {
+	key := fmt.Sprintf("first_limit:%s", date)
+	RLock()
+	defer RUnlock()
+	if v, found := Cache.Get(key); found {
+		hashMap := v.(map[string]string)
+		return hashMap, nil
+	}
+	return map[string]string{}, nil
+}
+
+func (c PoolCacheImpl) GetFirstLimitTime(ctx context.Context, date string, tsCodes []string) (map[string]string, error) {
+	result := make(map[string]string, len(tsCodes))
+	if len(tsCodes) == 0 {
+		return result, nil
+	}
 	key := fmt.Sprintf("first_limit:%s", date)
 	RLock()
 	defer RUnlock()
 
 	if v, found := Cache.Get(key); found {
 		hashMap := v.(map[string]string)
-		if val, exists := hashMap[tsCode]; exists {
-			return val, nil
+		for _, code := range tsCodes {
+			if val, exists := hashMap[code]; exists {
+				result[code] = val
+			}
 		}
 	}
-	return "", nil
+	return result, nil
 }
 
 func (c PoolCacheImpl) SetYesterdayStrongMembers(ctx context.Context, date string, entries []YesterdayStrongEntry) error {

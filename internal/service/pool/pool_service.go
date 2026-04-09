@@ -3,7 +3,6 @@ package pool
 
 import (
 	"context"
-	"go.uber.org/zap"
 	"stock/config"
 	"stock/dal/cache"
 	"stock/dal/repo"
@@ -14,6 +13,8 @@ import (
 	"stock/model/dal_model"
 	"strings"
 	"time"
+
+	"go.uber.org/zap"
 )
 
 type PoolServiceImpl struct{}
@@ -320,7 +321,20 @@ func (s *PoolServiceImpl) reclassifyToday(ctx context.Context, date string) (*Re
 			continue
 		}
 
-		vol := float64(quote.Vol)
+		vol := float64(quote.Vol / 1000)
+		amount := quote.Amount / 1000.0
+		// 实时总市值（万元）≈ 昨日总市值（万元） * (当前价 / 昨收)
+		var mv *float64
+		if stock.TotalMv != nil {
+			if quote.PreClose > 0 {
+				val := (*stock.TotalMv) * (quote.Price / quote.PreClose)
+				mv = &val
+			} else {
+				// 兜底：若缺昨收，则用涨跌幅估算(1 + pct/100)
+				val := (*stock.TotalMv) * (1.0 + quote.PctChg/100.0)
+				mv = &val
+			}
+		}
 		item := ReclassifyItemResult{
 			TsCode:      tsCode,
 			Name:        stock.Name,
@@ -331,9 +345,9 @@ func (s *PoolServiceImpl) reclassifyToday(ctx context.Context, date string) (*Re
 			IsLimitUp:   true,
 			IsAbove5Pct: true,
 			PoolType:    1,
-			TotalMv:     stock.TotalMv,
+			TotalMv:     mv,
 			Vol:         &vol,
-			Amount:      &quote.Amount,
+			Amount:      &amount,
 		}
 
 		// Compute limit_times from yesterday snapshot
@@ -365,6 +379,18 @@ func (s *PoolServiceImpl) reclassifyToday(ctx context.Context, date string) (*Re
 		}
 
 		vol := float64(quote.Vol)
+		amount := quote.Amount / 1000.0
+		// 实时总市值（万元）≈ 昨日总市值（万元） * (当前价 / 昨收)
+		var mv *float64
+		if stock.TotalMv != nil {
+			if quote.PreClose > 0 {
+				val := (*stock.TotalMv) * (quote.Price / quote.PreClose)
+				mv = &val
+			} else {
+				val := (*stock.TotalMv) * (1.0 + quote.PctChg/100.0)
+				mv = &val
+			}
+		}
 		item := ReclassifyItemResult{
 			TsCode:      tsCode,
 			Name:        stock.Name,
@@ -375,9 +401,9 @@ func (s *PoolServiceImpl) reclassifyToday(ctx context.Context, date string) (*Re
 			IsLimitUp:   false,
 			IsAbove5Pct: true,
 			PoolType:    2,
-			TotalMv:     stock.TotalMv,
+			TotalMv:     mv,
 			Vol:         &vol,
-			Amount:      &quote.Amount,
+			Amount:      &amount,
 		}
 
 		// Compute consecutive_strong_days

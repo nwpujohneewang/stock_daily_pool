@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"stock/dal/cache"
 	"stock/dal/repo"
 	"stock/internal/service/limitdetail"
 	"stock/internal/service/pool"
@@ -20,81 +19,6 @@ type PoolHandler struct{}
 
 func NewPoolHandler() *PoolHandler {
 	return &PoolHandler{}
-}
-
-func (h *PoolHandler) GetLimitUp(c *gin.Context) {
-	ctx := c.Request.Context()
-	date := c.DefaultQuery("date", time.Now().Format("2006-01-02"))
-
-	svc := pool.NewPoolService()
-	results, err := svc.GetLimitUp(ctx, pool.PoolQueryParams{Date: date})
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, api.Fail(500, "failed to get limit-up pool"))
-		return
-	}
-
-	// Get limit details from cache
-	var limitDetails map[string]*cache.LimitDetail
-	limitDetailSvc := limitdetail.GetInstance()
-	if limitDetailSvc != nil {
-		limitDetails, _ = limitDetailSvc.GetAllLimitDetails(ctx, date)
-	}
-
-	items := make([]response.PoolItem, 0, len(results))
-	for _, r := range results {
-		item := response.PoolItem{
-			TsCode:       r.TsCode,
-			Name:         r.Name,
-			Price:        r.Price,
-			PreClose:     r.PreClose,
-			ChangePct:    r.ChangePct,
-			PoolType:     int(r.PoolType),
-			LimitUpPrice: r.LimitUpPrice,
-			Date:         r.Date,
-		}
-
-		// Merge limit detail if available
-		if detail, ok := limitDetails[r.TsCode]; ok && detail != nil {
-			item.FirstTime = detail.FirstTime
-			item.LastTime = detail.LastTime
-			item.LimitTimes = detail.LimitTimes
-			if detail.LimitTimes > 0 {
-				item.LimitTimesDisplay = fmt.Sprintf("%d天%d板", detail.LimitTimes, detail.LimitTimes)
-			}
-		}
-
-		items = append(items, item)
-	}
-
-	c.JSON(http.StatusOK, api.OK(items))
-}
-
-func (h *PoolHandler) GetAbove5(c *gin.Context) {
-	ctx := c.Request.Context()
-	date := c.DefaultQuery("date", "2026-03-18")
-
-	svc := pool.NewPoolService()
-	results, err := svc.GetAbove5(ctx, pool.PoolQueryParams{Date: date})
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, api.Fail(500, "failed to get above-5 pool"))
-		return
-	}
-
-	items := make([]response.PoolItem, 0, len(results))
-	for _, r := range results {
-		items = append(items, response.PoolItem{
-			TsCode:       r.TsCode,
-			Name:         r.Name,
-			Price:        r.Price,
-			PreClose:     r.PreClose,
-			ChangePct:    r.ChangePct,
-			PoolType:     int(r.PoolType),
-			LimitUpPrice: r.LimitUpPrice,
-			Date:         r.Date,
-		})
-	}
-
-	c.JSON(http.StatusOK, api.OK(items))
 }
 
 func (h *PoolHandler) ReclassifyByDate(c *gin.Context) {
@@ -113,13 +37,6 @@ func (h *PoolHandler) ReclassifyByDate(c *gin.Context) {
 		}
 		c.JSON(http.StatusInternalServerError, api.Fail(500, "reclassify failed"))
 		return
-	}
-
-	// Get limit details from cache
-	var limitDetails map[string]*cache.LimitDetail
-	limitDetailSvc := limitdetail.GetInstance()
-	if limitDetailSvc != nil {
-		limitDetails, _ = limitDetailSvc.GetAllLimitDetails(ctx, date)
 	}
 
 	// Collect all ts_codes for batch query
@@ -169,13 +86,6 @@ func (h *PoolHandler) ReclassifyByDate(c *gin.Context) {
 			if r.LimitTimes > 0 {
 				item.LimitTimes = int(r.LimitTimes)
 				item.LimitTimesDisplay = fmt.Sprintf("%d天%d板", r.LimitTimes, r.LimitTimes)
-			} else if detail, ok := limitDetails[r.TsCode]; ok && detail != nil {
-				item.FirstTime = detail.FirstTime
-				item.LastTime = detail.LastTime
-				item.LimitTimes = detail.LimitTimes
-				if detail.LimitTimes > 0 {
-					item.LimitTimesDisplay = fmt.Sprintf("%d天%d板", detail.LimitTimes, detail.LimitTimes)
-				}
 			}
 		}
 
@@ -197,6 +107,48 @@ func (h *PoolHandler) ReclassifyByDate(c *gin.Context) {
 		}
 
 		items = append(items, item)
+	}
+
+	// Enrich limit details:
+	// - Today: use first limit time from pool cache (method 2)
+	// - Historical: use tushare limit_list_d to fill first/last/limitTimes (method 1)
+	if len(items) > 0 {
+		if isHistorical {
+			if svc := limitdetail.GetInstance(); svc != nil {
+				if details, err := svc.QueryLimitDetails(ctx, date); err == nil && len(details) > 0 {
+					for i := range items {
+						if !items[i].IsLimitUp {
+							continue
+						}
+						if d, ok := details[items[i].TsCode]; ok && d != nil {
+							if d.FirstTime != "" {
+								items[i].FirstTime = d.FirstTime
+							}
+							if d.LastTime != "" {
+								items[i].LastTime = d.LastTime
+							}
+							if d.LimitTimes > 0 {
+								items[i].LimitTimes = d.LimitTimes
+								items[i].LimitTimesDisplay = fmt.Sprintf("%d天%d板", d.LimitTimes, d.LimitTimes)
+							}
+						}
+					}
+				}
+			}
+		} else {
+			if svc := limitdetail.GetInstance(); svc != nil {
+				if firstTimes, err := svc.GetTodayFirstLimitTimes(ctx, date); err == nil && len(firstTimes) > 0 {
+					for i := range items {
+						if !items[i].IsLimitUp {
+							continue
+						}
+						if t, ok := firstTimes[items[i].TsCode]; ok && t != "" {
+							items[i].FirstTime = t
+						}
+					}
+				}
+			}
+		}
 	}
 
 	yesterdayStrongItems := make([]response.ReclassifyItem, 0, len(result.YesterdayStrongItems))
