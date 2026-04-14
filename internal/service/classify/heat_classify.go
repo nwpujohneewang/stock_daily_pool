@@ -9,6 +9,20 @@ import (
 	"stock/model/dal_model"
 )
 
+// Heat classify (online path)
+//
+// This file implements a lightweight "heat-based" topic classification:
+// - Heat universe: stocks with pct_chg > HeatRisingThreshold (default 3%) contribute to topic heat stats.
+// - Classification universe: stocks with pct_chg > ClassifyThreshold (default 5%) get a final topic.
+//
+// Assignment order & rules:
+//  1. Limit-up stocks first:
+//     manual relation > recent relation (<= 7 days) > best topic by today's heat ranking.
+//  2. Strong (non-limit-up) stocks next:
+//     try topics already claimed by limit-up stocks > otherwise fall back to heat ranking.
+//
+// Note: We intentionally keep this logic count-based (limit-up count / strong count / participation),
+// so the behavior is stable and easy to reason about.
 type StockQuoteInput struct {
 	TsCode        string
 	ChangePercent float64
@@ -19,20 +33,19 @@ type HeatClassifyService struct {
 	topicStockCountRepo      repo.TopicStockCountRepository
 	topicHeatCache           cache.TopicHeatCacheInterface
 	stockTopicsRelationCache cache.StockTopicsRelationCacheInterface
-	classificationCache      cache.ClassificationCacheInterface
 }
 
 type topicHeatAccumulator struct {
 	stockCount   int
 	limitUpCount int
 	risingCount  int
-	totalGain    float64
 }
 
-type topicGroupStats struct {
-	stockCount   int
-	limitUpCount int
-	totalChange  float64
+// classificationRunState holds per-run mutable state so the main flow reads as steps.
+type classificationRunState struct {
+	results               map[string][]dal_model.TopicRelation
+	classified            map[string]bool
+	limitUpAssignedTopics map[int64]struct{}
 }
 
 func NewHeatClassifyService() *HeatClassifyService {
@@ -40,7 +53,6 @@ func NewHeatClassifyService() *HeatClassifyService {
 		topicStockCountRepo:      repo.NewTopicStockCountRepository(),
 		topicHeatCache:           cache.NewTopicHeatCache(),
 		stockTopicsRelationCache: cache.NewStockTopicsRelationCache(),
-		classificationCache:      cache.NewClassificationCache(),
 	}
 }
 
@@ -48,15 +60,50 @@ func (s *ClassifyServiceImpl) ClassifyBySimpleHeat(ctx context.Context, stocks [
 	return NewHeatClassifyService().ClassifyBySimpleHeat(ctx, stocks, date)
 }
 
+// ClassifyBySimpleHeat is the online topic classification flow used by monitor/reclassify.
+// It first builds today's topic heat snapshot, then classifies limit-up stocks before
+// classifying the remaining strong stocks.
 func (s *HeatClassifyService) ClassifyBySimpleHeat(ctx context.Context, stocks []StockQuoteInput, date string) (map[string][]dal_model.TopicRelation, error) {
 	if len(stocks) == 0 {
 		return nil, nil
 	}
 
+	// 1) Split the input by thresholds. Only the heat universe is used to build heat stats,
+	// but only the classification universe produces final assignments.
+	heatStocks, classifyStocks, tsCodes := splitStocksForHeatClassification(stocks)
+	if len(heatStocks) == 0 || len(classifyStocks) == 0 {
+		return nil, nil
+	}
+
+	// 2) Load candidate topic relations for involved stocks.
+	relationsByStock, err := s.loadStockTopicsBatch(ctx, tsCodes)
+	if err != nil {
+		return nil, err
+	}
+
+	// 3) Compute today's per-topic heat snapshot (cached for debugging/inspection).
+	heatMap, err := s.calcTopicHeat(ctx, heatStocks, relationsByStock, date)
+	if err != nil {
+		return nil, err
+	}
+
+	// 4) Assign topics in two passes: limit-up first, then strong (non-limit-up).
+	state := newClassificationRunState(len(classifyStocks))
+	classifyLimitUpStocks(classifyStocks, relationsByStock, heatMap, date, state)
+	classifyStrongStocks(classifyStocks, relationsByStock, heatMap, date, state)
+
+	if len(state.results) == 0 {
+		return nil, nil
+	}
+	return state.results, nil
+}
+
+func splitStocksForHeatClassification(stocks []StockQuoteInput) ([]StockQuoteInput, []StockQuoteInput, []string) {
 	heatStocks := make([]StockQuoteInput, 0, len(stocks))
 	classifyStocks := make([]StockQuoteInput, 0, len(stocks))
 	tsCodes := make([]string, 0, len(stocks))
 	seen := make(map[string]struct{}, len(stocks))
+
 	for _, stock := range stocks {
 		if stock.TsCode == "" {
 			continue
@@ -72,23 +119,27 @@ func (s *HeatClassifyService) ClassifyBySimpleHeat(ctx context.Context, stocks [
 			classifyStocks = append(classifyStocks, stock)
 		}
 	}
-	if len(heatStocks) == 0 || len(classifyStocks) == 0 {
-		return nil, nil
-	}
 
-	relationsByStock, err := s.loadStockTopicsBatch(ctx, tsCodes)
-	if err != nil {
-		return nil, err
-	}
-	heatMap, err := s.calcTopicHeat(ctx, heatStocks, relationsByStock, date)
-	if err != nil {
-		return nil, err
-	}
+	return heatStocks, classifyStocks, tsCodes
+}
 
-	results := make(map[string][]dal_model.TopicRelation)
-	classified := make(map[string]bool, len(classifyStocks))
-	limitUpAssignedTopics := make(map[int64]struct{})
+func newClassificationRunState(size int) *classificationRunState {
+	return &classificationRunState{
+		results:               make(map[string][]dal_model.TopicRelation),
+		classified:            make(map[string]bool, size),
+		limitUpAssignedTopics: make(map[int64]struct{}),
+	}
+}
 
+// classifyLimitUpStocks assigns topics for limit-up stocks only.
+// It also records which topics were chosen so strong stocks can optionally align to them.
+func classifyLimitUpStocks(
+	classifyStocks []StockQuoteInput,
+	relationsByStock map[string][]dal_model.TopicRelation,
+	heatMap map[int64]*dal_model.TopicHeatInfo,
+	date string,
+	state *classificationRunState,
+) {
 	for _, stock := range classifyStocks {
 		if !stock.IsLimitUp {
 			continue
@@ -97,67 +148,35 @@ func (s *HeatClassifyService) ClassifyBySimpleHeat(ctx context.Context, stocks [
 		if !ok {
 			continue
 		}
-		results[stock.TsCode] = []dal_model.TopicRelation{best}
-		classified[stock.TsCode] = true
-		limitUpAssignedTopics[best.TopicID] = struct{}{}
+		state.results[stock.TsCode] = []dal_model.TopicRelation{best}
+		state.classified[stock.TsCode] = true
+		state.limitUpAssignedTopics[best.TopicID] = struct{}{}
 	}
+}
 
+// classifyStrongStocks assigns topics for strong stocks that are not limit-up.
+func classifyStrongStocks(
+	classifyStocks []StockQuoteInput,
+	relationsByStock map[string][]dal_model.TopicRelation,
+	heatMap map[int64]*dal_model.TopicHeatInfo,
+	date string,
+	state *classificationRunState,
+) {
 	for _, stock := range classifyStocks {
-		if stock.IsLimitUp || classified[stock.TsCode] {
+		if stock.IsLimitUp || state.classified[stock.TsCode] {
 			continue
 		}
-		best, ok := pickBestTopicBySimpleHeatForStrong(relationsByStock[stock.TsCode], heatMap, limitUpAssignedTopics, date)
+		best, ok := pickBestTopicBySimpleHeatForStrong(relationsByStock[stock.TsCode], heatMap, state.limitUpAssignedTopics, date)
 		if !ok {
 			continue
 		}
-		results[stock.TsCode] = []dal_model.TopicRelation{best}
-		classified[stock.TsCode] = true
+		state.results[stock.TsCode] = []dal_model.TopicRelation{best}
+		state.classified[stock.TsCode] = true
 	}
-
-	if len(results) == 0 {
-		return nil, nil
-	}
-	return results, nil
 }
 
-func sampleSupportFactor(totalRelatedStocks, stockCount int) float64 {
-	if totalRelatedStocks <= 0 {
-		return 0
-	}
-	support := float64(totalRelatedStocks) / float64(totalRelatedStocks+20)
-	if stockCount > 0 {
-		support *= float64(stockCount) / float64(stockCount+2)
-	}
-	if support < 0 {
-		return 0
-	}
-	if support > 1 {
-		return 1
-	}
-	return support
-}
-
-func effectiveOverallStrength(heatInfo *dal_model.TopicHeatInfo) float64 {
-	if heatInfo == nil {
-		return 0
-	}
-	if heatInfo.OverallStrength > 0 {
-		return heatInfo.OverallStrength
-	}
-	strength := heatInfo.AvgGain
-	if heatInfo.TotalRelatedStocks > 0 {
-		strength *= sampleSupportFactor(heatInfo.TotalRelatedStocks, heatInfo.RisingCount)
-	}
-	return strength
-}
-
-func topicPriorityScore(heatInfo *dal_model.TopicHeatInfo, historyScore float64) float64 {
-	if heatInfo == nil {
-		return 0
-	}
-	return float64(heatInfo.LimitUpCount)*1000 + float64(heatInfo.StockCount)*100 + effectiveOverallStrength(heatInfo) + historyScore
-}
-
+// Limit-up stocks use the strictest selection path:
+// manual relation > recent relation > heat ranking.
 func pickBestTopicBySimpleHeatForLimitUp(relations []dal_model.TopicRelation, heatMap map[int64]*dal_model.TopicHeatInfo, date string) (dal_model.TopicRelation, bool) {
 	if manual, ok := pickLatestManualRelation(relations); ok {
 		return manual, true
@@ -168,6 +187,8 @@ func pickBestTopicBySimpleHeatForLimitUp(relations []dal_model.TopicRelation, he
 	return pickBestTopicBySimpleHeat(relations, heatMap, nil, true)
 }
 
+// Strong stocks first try topics that were already chosen by limit-up stocks.
+// If none fit, they fall back to the broader heat ranking.
 func pickBestTopicBySimpleHeatForStrong(relations []dal_model.TopicRelation, heatMap map[int64]*dal_model.TopicHeatInfo, limitUpAssignedTopics map[int64]struct{}, date string) (dal_model.TopicRelation, bool) {
 	if manual, ok := pickLatestManualRelation(relations); ok {
 		return manual, true
@@ -187,12 +208,19 @@ func pickBestTopicBySimpleHeatForStrong(relations []dal_model.TopicRelation, hea
 	return pickBestTopicBySimpleHeat(relations, heatMap, nil, false)
 }
 
+// pickBestTopicBySimpleHeat picks a topic from the candidate relations using today's topic heat stats.
+//
+// preferLimitUp controls tie-breaking:
+// - true: prioritize more limit-up confirmations (then strong count / participation / heat score).
+// - false: prioritize overall heat score (then strong count / limit-up count / participation).
 func pickBestTopicBySimpleHeat(relations []dal_model.TopicRelation, heatMap map[int64]*dal_model.TopicHeatInfo, allow func(topicID int64) bool, preferLimitUp bool) (dal_model.TopicRelation, bool) {
 	var (
-		best        dal_model.TopicRelation
-		bestLimitUp int
-		bestAvgGain float64
-		found       bool
+		best              dal_model.TopicRelation
+		bestLimitUp       int
+		bestStockCount    int
+		bestParticipation float64
+		bestHeatScore     float64
+		found             bool
 	)
 
 	for _, relation := range relations {
@@ -207,30 +235,43 @@ func pickBestTopicBySimpleHeat(relations []dal_model.TopicRelation, heatMap map[
 			continue
 		}
 		if !found {
-			best = relation
-			bestLimitUp = heatInfo.LimitUpCount
-			bestAvgGain = heatInfo.AvgGain
+			best, bestLimitUp, bestStockCount, bestParticipation, bestHeatScore =
+				relation, heatInfo.LimitUpCount, heatInfo.StockCount, heatInfo.ParticipationRate, heatInfo.HeatScore
 			found = true
 			continue
 		}
-		if preferLimitUp {
-			if heatInfo.LimitUpCount > bestLimitUp || (heatInfo.LimitUpCount == bestLimitUp && heatInfo.AvgGain > bestAvgGain) {
-				best = relation
-				bestLimitUp = heatInfo.LimitUpCount
-				bestAvgGain = heatInfo.AvgGain
-			}
-			continue
-		}
-		if heatInfo.AvgGain > bestAvgGain {
-			best = relation
-			bestLimitUp = heatInfo.LimitUpCount
-			bestAvgGain = heatInfo.AvgGain
+		if shouldReplacePickedTopic(heatInfo, bestLimitUp, bestStockCount, bestParticipation, bestHeatScore, preferLimitUp) {
+			best, bestLimitUp, bestStockCount, bestParticipation, bestHeatScore =
+				relation, heatInfo.LimitUpCount, heatInfo.StockCount, heatInfo.ParticipationRate, heatInfo.HeatScore
 		}
 	}
 
 	return best, found
 }
 
+// shouldReplacePickedTopic defines the ranking order between two candidate topics.
+func shouldReplacePickedTopic(
+	heatInfo *dal_model.TopicHeatInfo,
+	bestLimitUp int,
+	bestStockCount int,
+	bestParticipation float64,
+	bestHeatScore float64,
+	preferLimitUp bool,
+) bool {
+	if preferLimitUp {
+		return heatInfo.LimitUpCount > bestLimitUp ||
+			(heatInfo.LimitUpCount == bestLimitUp && heatInfo.StockCount > bestStockCount) ||
+			(heatInfo.LimitUpCount == bestLimitUp && heatInfo.StockCount == bestStockCount && heatInfo.ParticipationRate > bestParticipation) ||
+			(heatInfo.LimitUpCount == bestLimitUp && heatInfo.StockCount == bestStockCount && heatInfo.ParticipationRate == bestParticipation && heatInfo.HeatScore > bestHeatScore)
+	}
+
+	return heatInfo.HeatScore > bestHeatScore ||
+		(heatInfo.HeatScore == bestHeatScore && heatInfo.StockCount > bestStockCount) ||
+		(heatInfo.HeatScore == bestHeatScore && heatInfo.StockCount == bestStockCount && heatInfo.LimitUpCount > bestLimitUp) ||
+		(heatInfo.HeatScore == bestHeatScore && heatInfo.StockCount == bestStockCount && heatInfo.LimitUpCount == bestLimitUp && heatInfo.ParticipationRate > bestParticipation)
+}
+
+// calcTopicHeat builds today's topic heat snapshot using count-style indicators only.
 func (s *HeatClassifyService) calcTopicHeat(ctx context.Context, stocks []StockQuoteInput, relationsByStock map[string][]dal_model.TopicRelation, date string) (map[int64]*dal_model.TopicHeatInfo, error) {
 	totalCounts, err := s.topicStockCountRepo.GetAllCountMap(ctx)
 	if err != nil {
@@ -238,40 +279,7 @@ func (s *HeatClassifyService) calcTopicHeat(ctx context.Context, stocks []StockQ
 	}
 	countsUnavailable := len(totalCounts) == 0
 
-	stats := make(map[int64]*topicHeatAccumulator)
-	missingTopicIDs := make(map[int64]struct{})
-	for _, stock := range stocks {
-		relations := relationsByStock[stock.TsCode]
-		for _, relation := range relations {
-			if IsFilteredTopic(relation.TopicName) {
-				continue
-			}
-			if !countsUnavailable {
-				totalRelated, ok := totalCounts[relation.TopicID]
-				if !ok {
-					missingTopicIDs[relation.TopicID] = struct{}{}
-				} else if totalRelated <= 0 {
-					continue
-				}
-			}
-
-			stat := stats[relation.TopicID]
-			if stat == nil {
-				stat = &topicHeatAccumulator{}
-				stats[relation.TopicID] = stat
-			}
-			if stock.ChangePercent > ClassifyThreshold {
-				stat.stockCount++
-				if stock.IsLimitUp {
-					stat.limitUpCount++
-				}
-			}
-			if stock.ChangePercent > HeatRisingThreshold {
-				stat.risingCount++
-			}
-			stat.totalGain += stock.ChangePercent
-		}
-	}
+	stats, missingTopicIDs := collectTopicHeatStats(stocks, relationsByStock, totalCounts, countsUnavailable)
 
 	if !countsUnavailable && len(missingTopicIDs) > 0 {
 		loadedCounts, err := s.loadMissingTopicCounts(ctx, missingTopicIDs)
@@ -288,35 +296,7 @@ func (s *HeatClassifyService) calcTopicHeat(ctx context.Context, stocks []StockQ
 		}
 	}
 
-	heatMap := make(map[int64]*dal_model.TopicHeatInfo, len(stats))
-	for topicID, stat := range stats {
-		if stat.risingCount == 0 {
-			continue
-		}
-
-		avgGain := stat.totalGain / float64(stat.risingCount)
-
-		info := &dal_model.TopicHeatInfo{
-			TopicID:      topicID,
-			StockCount:   stat.stockCount,
-			LimitUpCount: stat.limitUpCount,
-			RisingCount:  stat.risingCount,
-			AvgGain:      avgGain,
-		}
-		if countsUnavailable {
-			info.OverallStrength = avgGain
-			info.HeatScore = float64(stat.limitUpCount)*1000 + float64(stat.stockCount)*100 + info.OverallStrength
-		} else {
-			info.TotalRelatedStocks = totalCounts[topicID]
-			if info.TotalRelatedStocks <= 0 {
-				continue
-			}
-			info.ParticipationRate = float64(stat.stockCount) / float64(info.TotalRelatedStocks)
-			info.OverallStrength = avgGain * sampleSupportFactor(info.TotalRelatedStocks, stat.risingCount)
-			info.HeatScore = float64(stat.limitUpCount)*1000 + float64(stat.stockCount)*100 + info.OverallStrength
-		}
-		heatMap[topicID] = info
-	}
+	heatMap := buildTopicHeatMap(stats, totalCounts, countsUnavailable)
 
 	if err := s.topicHeatCache.SetAll(ctx, date, heatMap); err != nil {
 		return nil, err
@@ -324,56 +304,99 @@ func (s *HeatClassifyService) calcTopicHeat(ctx context.Context, stocks []StockQ
 	return heatMap, nil
 }
 
-func (s *HeatClassifyService) classifyLimitUp(stocks []StockQuoteInput, relationsByStock map[string][]dal_model.TopicRelation, heatMap map[int64]*dal_model.TopicHeatInfo, date string, results map[string][]dal_model.TopicRelation, classified map[string]bool, activeTopics map[int64]struct{}) {
+// collectTopicHeatStats aggregates per-topic stats from the heat universe.
+func collectTopicHeatStats(
+	stocks []StockQuoteInput,
+	relationsByStock map[string][]dal_model.TopicRelation,
+	totalCounts map[int64]int,
+	countsUnavailable bool,
+) (map[int64]*topicHeatAccumulator, map[int64]struct{}) {
+	stats := make(map[int64]*topicHeatAccumulator)
+	missingTopicIDs := make(map[int64]struct{})
+
 	for _, stock := range stocks {
-		if !stock.IsLimitUp {
-			continue
+		for _, relation := range relationsByStock[stock.TsCode] {
+			if IsFilteredTopic(relation.TopicName) {
+				continue
+			}
+			if !countsUnavailable {
+				totalRelated, ok := totalCounts[relation.TopicID]
+				if !ok {
+					missingTopicIDs[relation.TopicID] = struct{}{}
+				} else if totalRelated <= 0 {
+					continue
+				}
+			}
+
+			stat := ensureTopicHeatAccumulator(stats, relation.TopicID)
+			if stock.ChangePercent > ClassifyThreshold {
+				stat.stockCount++
+				if stock.IsLimitUp {
+					stat.limitUpCount++
+				}
+			}
+			if stock.ChangePercent > HeatRisingThreshold {
+				stat.risingCount++
+			}
 		}
-		best, score, ok := pickBestTopic(relationsByStock[stock.TsCode], heatMap, activeTopics, false, date)
-		if !ok {
-			continue
-		}
-		best.Confidence = score
-		results[stock.TsCode] = []dal_model.TopicRelation{best}
-		classified[stock.TsCode] = true
-		activeTopics[best.TopicID] = struct{}{}
 	}
-	for topicID := range collectStrongHeatTopics(heatMap) {
-		activeTopics[topicID] = struct{}{}
-	}
+
+	return stats, missingTopicIDs
 }
 
-func (s *HeatClassifyService) classifyNonLimitUp(stocks []StockQuoteInput, relationsByStock map[string][]dal_model.TopicRelation, heatMap map[int64]*dal_model.TopicHeatInfo, date string, results map[string][]dal_model.TopicRelation, classified map[string]bool, activeTopics map[int64]struct{}) {
-	if len(activeTopics) == 0 {
-		return
+// ensureTopicHeatAccumulator returns the accumulator for a topic, creating it if needed.
+func ensureTopicHeatAccumulator(stats map[int64]*topicHeatAccumulator, topicID int64) *topicHeatAccumulator {
+	stat := stats[topicID]
+	if stat == nil {
+		stat = &topicHeatAccumulator{}
+		stats[topicID] = stat
 	}
-	for _, stock := range stocks {
-		if stock.IsLimitUp || classified[stock.TsCode] {
-			continue
-		}
-		best, score, ok := pickBestTopic(relationsByStock[stock.TsCode], heatMap, activeTopics, true, date)
-		if !ok || score <= 0.1 {
-			continue
-		}
-		best.Confidence = score
-		results[stock.TsCode] = []dal_model.TopicRelation{best}
-		classified[stock.TsCode] = true
-	}
+	return stat
 }
 
-func (s *HeatClassifyService) classifyRemaining(stocks []StockQuoteInput, relationsByStock map[string][]dal_model.TopicRelation, heatMap map[int64]*dal_model.TopicHeatInfo, date string, results map[string][]dal_model.TopicRelation, classified map[string]bool) {
-	for _, stock := range stocks {
-		if classified[stock.TsCode] {
+// buildTopicHeatMap converts raw per-topic accumulators into TopicHeatInfo snapshots.
+func buildTopicHeatMap(
+	stats map[int64]*topicHeatAccumulator,
+	totalCounts map[int64]int,
+	countsUnavailable bool,
+) map[int64]*dal_model.TopicHeatInfo {
+	heatMap := make(map[int64]*dal_model.TopicHeatInfo, len(stats))
+
+	for topicID, stat := range stats {
+		if stat.risingCount == 0 {
 			continue
 		}
-		best, score, ok := pickBestTopic(relationsByStock[stock.TsCode], heatMap, nil, false, date)
-		if !ok {
-			continue
+
+		info := &dal_model.TopicHeatInfo{
+			TopicID:      topicID,
+			StockCount:   stat.stockCount,
+			LimitUpCount: stat.limitUpCount,
+			RisingCount:  stat.risingCount,
 		}
-		best.Confidence = score
-		results[stock.TsCode] = []dal_model.TopicRelation{best}
-		classified[stock.TsCode] = true
+		if countsUnavailable {
+			info.HeatScore = fallbackHeatScore(stat)
+		} else {
+			info.TotalRelatedStocks = totalCounts[topicID]
+			if info.TotalRelatedStocks <= 0 {
+				continue
+			}
+			info.ParticipationRate = float64(stat.stockCount) / float64(info.TotalRelatedStocks)
+			info.HeatScore = participationHeatScore(stat, info.ParticipationRate)
+		}
+		heatMap[topicID] = info
 	}
+
+	return heatMap
+}
+
+// fallbackHeatScore is used when topic total related stock counts are unavailable.
+func fallbackHeatScore(stat *topicHeatAccumulator) float64 {
+	return float64(stat.limitUpCount)*1000 + float64(stat.stockCount)*100 + float64(stat.risingCount)
+}
+
+// participationHeatScore incorporates participation rate (strong_count / total_related) when available.
+func participationHeatScore(stat *topicHeatAccumulator, participationRate float64) float64 {
+	return float64(stat.limitUpCount)*1000 + float64(stat.stockCount)*100 + participationRate*100
 }
 
 func (s *HeatClassifyService) loadMissingTopicCounts(ctx context.Context, missingTopicIDs map[int64]struct{}) (map[int64]int, error) {
@@ -444,6 +467,7 @@ func (s *HeatClassifyService) loadStockTopicsBatch(ctx context.Context, tsCodes 
 	return results, nil
 }
 
+// If a stock touched a topic recently, reuse that relation before relying on today's heat ranking.
 func pickRecentTopic(relations []dal_model.TopicRelation, date string) (dal_model.TopicRelation, bool) {
 	recent := make([]dal_model.TopicRelation, 0, len(relations))
 	bestHitCount := -1
@@ -471,55 +495,4 @@ func pickRecentTopic(relations []dal_model.TopicRelation, date string) (dal_mode
 		return recent[0], true
 	}
 	return recent[idx.Int64()], true
-}
-
-func collectStrongHeatTopics(heatMap map[int64]*dal_model.TopicHeatInfo) map[int64]struct{} {
-	activeTopics := make(map[int64]struct{})
-	for topicID, heatInfo := range heatMap {
-		if heatInfo == nil {
-			continue
-		}
-		if heatInfo.StockCount >= 2 && heatInfo.HeatScore >= ActiveHeatThreshold {
-			activeTopics[topicID] = struct{}{}
-		}
-	}
-	return activeTopics
-}
-
-func pickBestTopic(relations []dal_model.TopicRelation, heatMap map[int64]*dal_model.TopicHeatInfo, activeTopics map[int64]struct{}, restrictActive bool, date string) (dal_model.TopicRelation, float64, bool) {
-	if manual, ok := pickLatestManualRelation(relations); ok {
-		return manual, 1, true
-	}
-	if recent, ok := pickRecentTopic(relations, date); ok {
-		return recent, 1, true
-	}
-
-	var (
-		best      dal_model.TopicRelation
-		bestScore float64
-		found     bool
-	)
-
-	for _, relation := range relations {
-		if IsFilteredTopic(relation.TopicName) {
-			continue
-		}
-		if restrictActive {
-			if _, ok := activeTopics[relation.TopicID]; !ok {
-				continue
-			}
-		}
-		heatInfo := heatMap[relation.TopicID]
-		if heatInfo == nil {
-			continue
-		}
-		score := topicPriorityScore(heatInfo, CalcHistoryScore(relation.LastSeenDate, relation.HitCount, date))
-		if !found || score > bestScore {
-			best = relation
-			bestScore = score
-			found = true
-		}
-	}
-
-	return best, bestScore, found
 }
