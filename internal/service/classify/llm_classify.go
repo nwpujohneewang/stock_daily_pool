@@ -154,7 +154,6 @@ func (s *LLMClassifyService) classifyBatch(
 	if len(stocks) == 0 {
 		return nil, nil
 	}
-	stocks = stocks[:1]
 
 	batches := splitIntoBatches(stocks, llmBatchSize)
 	maxConcurrent := s.cfg.MaxConcurrent
@@ -185,8 +184,6 @@ func (s *LLMClassifyService) classifyBatch(
 
 			systemPrompt := buildSystemPrompt()
 			userPrompt := buildUserPrompt(b, stockMap, relationsByStock, sectorTop20, confirmedTopics, limitUp)
-
-			logger.Info("user prompt", zap.String("prompt", userPrompt))
 
 			raw, err := s.llmClient.ChatCompletion(ctx, systemPrompt, userPrompt)
 			if err != nil {
