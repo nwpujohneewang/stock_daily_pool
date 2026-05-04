@@ -3,12 +3,12 @@ package snapshot
 import (
 	"context"
 	"fmt"
+	"stock/external/tushare"
 	"strings"
 	"time"
 
 	"stock/config"
 	"stock/dal/repo"
-	"stock/internal/external/tushare"
 	"stock/internal/pkg/limiter"
 	"stock/internal/pkg/logger"
 	"stock/internal/pkg/utils"
@@ -69,10 +69,28 @@ func (s *SnapshotServiceImpl) TakeSnapshot(ctx context.Context, date string) err
 	}
 
 	// Step 2: Keep the wider eligible universe for by-heat classification; final output still only persists >5% stocks.
+	// Pre-fetch stock info to filter out ST and BSE stocks.
+	allStocks, _ := stockRepo.GetAllStocks(ctx)
+	stockInfoMap := make(map[string]*dal_model.StockBasicInfo, len(allStocks))
+	for i := range allStocks {
+		stockInfoMap[allStocks[i].TsCode] = &allStocks[i]
+	}
+
 	candidateCodes := make([]string, 0)
 	quoteMap := make(map[string]*tushare.QuoteItem)
 	allHeatInputs := make([]classify.StockQuoteInput, 0, len(quotes))
 	for _, q := range quotes {
+		if info, ok := stockInfoMap[q.TsCode]; ok {
+			if info.IsST {
+				continue
+			}
+		}
+		if len(q.TsCode) >= 1 {
+			c := q.TsCode[0]
+			if c == '8' || c == '4' || c == '9' {
+				continue
+			}
+		}
 		if q.PctChg > classify.HeatRisingThreshold {
 			allHeatInputs = append(allHeatInputs, classify.StockQuoteInput{
 				TsCode:        q.TsCode,
@@ -125,10 +143,6 @@ func (s *SnapshotServiceImpl) TakeSnapshot(ctx context.Context, date string) err
 		dal_model.BoardBSE:  {BoardCode: dal_model.BoardBSE, LimitUpRatio: 0.30},
 	}
 	classifySvc := classify.NewClassifyService()
-	stockInfoMap := make(map[string]*dal_model.StockBasicInfo, len(stocks))
-	for i := range stocks {
-		stockInfoMap[stocks[i].TsCode] = &stocks[i]
-	}
 	for i := range allHeatInputs {
 		input := &allHeatInputs[i]
 		name := stockNameMap[input.TsCode]

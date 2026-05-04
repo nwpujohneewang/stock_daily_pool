@@ -2,7 +2,6 @@ package attribution
 
 import (
 	"context"
-	"slices"
 	"sort"
 	dalmodel "stock/model/dal_model"
 	"time"
@@ -128,5 +127,10 @@ func decideAttribution(scores []TopicScore, allowDual bool) AttributionOutput {
 }
 
 func InFilterTopic(topicID int64) bool {
-	return slices.Contains(FilterTopics, topicID)
+	for _, id := range FilterTopics {
+		if id == topicID {
+			return true
+		}
+	}
+	return false
 }

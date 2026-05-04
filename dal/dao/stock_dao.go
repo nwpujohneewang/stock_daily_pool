@@ -3,11 +3,11 @@ package dao
 import (
 	"context"
 	"errors"
+	"stock/external/tushare"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
-	"stock/internal/external/tushare"
 	"stock/model/dal_model"
 )
 

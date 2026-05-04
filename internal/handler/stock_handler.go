@@ -3,7 +3,7 @@ package handler
 import (
 	"net/http"
 	"stock/config"
-	"stock/internal/external/tushare"
+	"stock/external/tushare"
 	"stock/internal/service/stock"
 	"stock/model/api"
 	"stock/model/api/response"

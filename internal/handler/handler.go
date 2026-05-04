@@ -2,18 +2,16 @@ package handler
 
 import (
 	"stock/config"
+	"stock/external/news"
 	"stock/internal/scheduler"
-	"stock/internal/ws"
 )
 
 type Handlers struct {
-	Hub    *ws.Hub
 	Config *config.AppConfig
 
 	PoolHandler
 	TopicHandler
 	FocusHandler
-	WSHandler
 	CrawlHandler
 	TopicDictionaryHandler
 	StockHandler
@@ -21,22 +19,22 @@ type Handlers struct {
 	MonitorHandler
 	SnapshotHandler
 	SchedulerHandler
+	LLMClassifyHandler
+	HotSpotHandler
 }
 
 func NewHandlers(
-	hub *ws.Hub,
 	cfg *config.AppConfig,
 	s *scheduler.Scheduler,
+	newsAgg *news.Aggregator,
 ) *Handlers {
 	h := &Handlers{
-		Hub:    hub,
 		Config: cfg,
 	}
 
 	h.PoolHandler = *NewPoolHandler()
 	h.TopicHandler = *NewTopicHandler()
 	h.FocusHandler = *NewFocusHandler()
-	h.WSHandler = *NewWSHandler(hub)
 	h.CrawlHandler = *NewCrawlHandler()
 	h.TopicDictionaryHandler = *NewTopicDictionaryHandler()
 	h.StockHandler = *NewStockHandler()
@@ -44,6 +42,8 @@ func NewHandlers(
 	h.MonitorHandler = *NewMonitorHandler()
 	h.SnapshotHandler = *NewSnapshotHandler()
 	h.SchedulerHandler = *NewSchedulerHandler(s)
+	h.LLMClassifyHandler = *NewLLMClassifyHandler()
+	h.HotSpotHandler = *NewHotSpotHandler(newsAgg)
 
 	return h
 }

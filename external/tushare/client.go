@@ -248,7 +248,6 @@ func (c *Client) RealtimeQuoteAll(ctx context.Context) ([]QuoteItem, error) {
 	}
 
 	var results []QuoteItem
-	var over5 []QuoteItem
 	for _, item := range resp.Data.Items {
 		if len(item) < 5 {
 			continue
@@ -262,9 +261,6 @@ func (c *Client) RealtimeQuoteAll(ctx context.Context) ([]QuoteItem, error) {
 			Amount:   toFloat64(item[4]),
 		}
 		results = append(results, quoteItem)
-		if quoteItem.PctChg >= 5.0 {
-			over5 = append(over5, quoteItem)
-		}
 	}
 
 	return results, nil
@@ -340,6 +336,47 @@ func (c *Client) ConceptDetail(ctx context.Context, conceptID string) ([]Concept
 			ConceptName: toString(item[1]),
 			TsCode:      toString(item[2]),
 			Name:        toString(item[3]),
+		})
+	}
+
+	return results, nil
+}
+
+type ConceptDailyItem struct {
+	TsCode string  `json:"ts_code"`
+	Name   string  `json:"name"`
+	PctChg float64 `json:"pct_chg"`
+}
+
+func (c *Client) ConceptDaily(ctx context.Context, tradeDate string) ([]ConceptDailyItem, error) {
+	if tradeDate == "" {
+		return nil, fmt.Errorf("trade_date is required")
+	}
+
+	req := &TushareRequest{
+		APIName: "sw_daily",
+		Params:  map[string]interface{}{"trade_date": tradeDate},
+		Fields:  "ts_code,name,pct_change",
+	}
+
+	resp, err := c.doRequest(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+
+	if resp.Data == nil {
+		return nil, nil
+	}
+
+	var results []ConceptDailyItem
+	for _, item := range resp.Data.Items {
+		if len(item) < 3 {
+			continue
+		}
+		results = append(results, ConceptDailyItem{
+			TsCode: toString(item[0]),
+			Name:   toString(item[1]),
+			PctChg: toFloat64(item[2]),
 		})
 	}
 

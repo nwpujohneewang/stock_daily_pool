@@ -5,7 +5,7 @@ import (
 	"stock/config"
 	"stock/dal/cache"
 	"stock/dal/repo"
-	"stock/internal/external/tushare"
+	"stock/external/tushare"
 	"stock/internal/pkg/logger"
 	"stock/internal/pkg/utils"
 	"stock/internal/service"
@@ -36,16 +36,16 @@ func NewScheduler(
 }
 
 func (s *Scheduler) Setup() {
-	if _, err := s.cron.AddFunc(s.cfg.PreMarketInit, s.preMarketInit); err != nil {
+	if _, err := s.cron.AddFunc("0 0 9 * * 1-5", s.preMarketInit); err != nil {
 		logger.Warn("register preMarketInit failed", zap.Error(err))
 	}
-	if _, err := s.cron.AddFunc(s.cfg.ClosingSnapshot, s.closingSnapshot); err != nil {
+	if _, err := s.cron.AddFunc("0 5 15 * * 1-5", s.closingSnapshot); err != nil {
 		logger.Warn("register closingSnapshot failed", zap.Error(err))
 	}
 	if _, err := s.cron.AddFunc("0 0 23 * * 1-5", s.computeTopicStockCount); err != nil {
 		logger.Warn("register computeTopicStockCount failed", zap.Error(err))
 	}
-	if _, err := s.cron.AddFunc("0 0 16 * * 1-5", s.syncStockBasic); err != nil {
+	if _, err := s.cron.AddFunc("0 0 18 * * 1-5", s.syncStockBasic); err != nil {
 		logger.Warn("register syncStockBasic failed", zap.Error(err))
 	}
 }
@@ -208,7 +208,7 @@ func isTradingDay(t time.Time) bool {
 
 func getPrevDate(date string) string {
 	t, _ := time.Parse("2006-01-02", date)
-	return t.AddDate(0, 0, -1).Format("2006-01-02")
+	return utils.PreviousTradingDay(t).Format("2006-01-02")
 }
 
 func getPreviousTradingDay(t time.Time) time.Time {

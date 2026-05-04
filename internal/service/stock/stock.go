@@ -3,11 +3,11 @@ package stock
 import (
 	"context"
 	"fmt"
+	"stock/external/tushare"
 	"strings"
 	"time"
 
 	"stock/dal/repo"
-	"stock/internal/external/tushare"
 	"stock/internal/pkg/limiter"
 	"stock/internal/pkg/logger"
 	"stock/model/dal_model"

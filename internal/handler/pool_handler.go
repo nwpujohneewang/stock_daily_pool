@@ -10,10 +10,18 @@ import (
 	"stock/model/api"
 	"stock/model/api/response"
 	"stock/model/dal_model"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
 )
+
+func isTodayShanghai(date string) bool {
+	loc, _ := time.LoadLocation("Asia/Shanghai")
+	today := time.Now().In(loc).Format("2006-01-02")
+	normalizedDate := strings.ReplaceAll(date, "-", "")
+	return normalizedDate == strings.ReplaceAll(today, "-", "")
+}
 
 type PoolHandler struct{}
 
@@ -48,7 +56,7 @@ func (h *PoolHandler) ReclassifyByDate(c *gin.Context) {
 		allCodes = append(allCodes, r.TsCode)
 	}
 
-	isHistorical := date != time.Now().Format("2006-01-02")
+	isHistorical := !isTodayShanghai(date)
 
 	// Query all topic relations for display only for today-mode results.
 	var allRelations map[string][]dal_model.StockTopicRelation

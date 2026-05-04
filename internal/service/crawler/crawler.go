@@ -4,12 +4,12 @@ import (
 	"context"
 	"fmt"
 	"regexp"
+	"stock/external/jiuyan"
 	"stock/model/dal_model"
 	"time"
 
 	"stock/dal/dao"
 	"stock/dal/repo"
-	"stock/internal/external/jiuyan"
 	"stock/internal/pkg/converter"
 	"stock/internal/pkg/logger"
 	"stock/internal/pkg/utils"

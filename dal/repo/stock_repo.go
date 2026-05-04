@@ -4,7 +4,7 @@ import (
 	"context"
 	"stock/dal/cache"
 	"stock/dal/dao"
-	"stock/internal/external/tushare"
+	"stock/external/tushare"
 	"stock/model/dal_model"
 )
 

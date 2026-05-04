@@ -74,6 +74,10 @@ func (s *RecentStrategy) RunAttribution(ctx context.Context, input AttributionIn
 		scores = stale
 	}
 
+	if winner == 0 {
+		return AttributionOutput{}, nil
+	}
+
 	return AttributionOutput{
 		FinalTopicIDs:     []int64{winner},
 		AllScores:         scores,

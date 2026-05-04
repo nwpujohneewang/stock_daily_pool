@@ -5,7 +5,6 @@ import (
 	"stock/config"
 	"stock/internal/handler"
 	"stock/internal/middleware"
-	"stock/internal/ws"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -35,10 +34,6 @@ func setupRouter(cfg *config.AppConfig, h *handler.Handlers) *gin.Engine {
 			"status":    "ok",
 			"timestamp": time.Now().Unix(),
 		})
-	})
-
-	r.GET("/ws", func(c *gin.Context) {
-		ws.ServeWS(h.Hub, c.Writer, c.Request)
 	})
 
 	api := r.Group("/api/v1")
@@ -104,6 +99,16 @@ func setupRouter(cfg *config.AppConfig, h *handler.Handlers) *gin.Engine {
 			schedulerGroup.POST("/load_yesterday_strong", h.SchedulerHandler.TriggerLoadYesterdayStrongPool)
 			schedulerGroup.POST("/closing_snapshot", h.SchedulerHandler.TriggerClosingSnapshot)
 			schedulerGroup.POST("/sync_stock_basic", h.SchedulerHandler.TriggerSyncStockBasic)
+		}
+
+		llmClassify := api.Group("/llm-classify")
+		{
+			llmClassify.POST("/run-history", h.LLMClassifyHandler.RunHistory)
+		}
+
+		hotSpot := api.Group("/hot-spot")
+		{
+			hotSpot.GET("/fetch-news", h.HotSpotHandler.FetchNews)
 		}
 	}
 

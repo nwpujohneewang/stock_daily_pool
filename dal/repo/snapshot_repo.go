@@ -2,39 +2,11 @@ package repo
 
 import (
 	"context"
-	"fmt"
 	"stock/dal/cache"
 	"stock/dal/dao"
 	"stock/model/dal_model"
 	"strings"
-	"time"
-
-	"gorm.io/gorm"
 )
-
-type snapshotPartitionManager struct {
-	db    *gorm.DB
-	table string
-}
-
-type snapshotPartitionEnsurer interface {
-	EnsureMonthPartition(ctx context.Context, target time.Time) error
-}
-
-func (m *snapshotPartitionManager) EnsureMonthPartition(ctx context.Context, target time.Time) error {
-	start := time.Date(target.Year(), target.Month(), 1, 0, 0, 0, 0, target.Location())
-	end := start.AddDate(0, 1, 0)
-	partitionName := fmt.Sprintf("%s_%04d_%02d", m.table, start.Year(), int(start.Month()))
-	err := m.db.WithContext(ctx).Exec(fmt.Sprintf(`
-		CREATE TABLE IF NOT EXISTS %s
-		PARTITION OF %s
-		FOR VALUES FROM ('%s') TO ('%s')
-	`, partitionName, m.table, start.Format("2006-01-02"), end.Format("2006-01-02"))).Error
-	if err != nil {
-		return fmt.Errorf("create partition %s: %w", partitionName, err)
-	}
-	return nil
-}
 
 type SnapshotRepository interface {
 	DeleteByDate(ctx context.Context, date string) error
@@ -47,21 +19,16 @@ type SnapshotRepository interface {
 }
 
 type snapshotRepoImpl struct {
-	dao              dao.SnapshotDAO
-	partitionEnsurer snapshotPartitionEnsurer
+	dao dao.SnapshotDAO
 }
 
 func NewSnapshotRepository() SnapshotRepository {
 	return &snapshotRepoImpl{
-		dao:              dao.NewSnapshotDAO(),
-		partitionEnsurer: &snapshotPartitionManager{db: dao.DB, table: dal_model.DailyStockSnapshot{}.TableName()},
+		dao: dao.NewSnapshotDAO(),
 	}
 }
 
 func (r *snapshotRepoImpl) DeleteByDate(ctx context.Context, date string) error {
-	if err := r.ensureDatePartition(ctx, date); err != nil {
-		return err
-	}
 	if err := r.dao.DeleteByDate(ctx, date); err != nil {
 		return err
 	}
@@ -78,9 +45,6 @@ func (r *snapshotRepoImpl) DeleteBeforeOrEqualDate(ctx context.Context, cutoffDa
 func (r *snapshotRepoImpl) InsertBatch(ctx context.Context, snapshots []dal_model.DailyStockSnapshot) error {
 	if len(snapshots) == 0 {
 		return nil
-	}
-	if err := r.partitionEnsurer.EnsureMonthPartition(ctx, snapshots[0].Date); err != nil {
-		return fmt.Errorf("ensure snapshot partition: %w", err)
 	}
 	if err := r.dao.InsertBatch(ctx, snapshots); err != nil {
 		return err
@@ -122,9 +86,6 @@ func (r *snapshotRepoImpl) GetByTsCode(ctx context.Context, tsCode string) ([]da
 }
 
 func (r *snapshotRepoImpl) UpdateTopicIDByTsCodeAndDate(ctx context.Context, date, tsCode string, topicID *int64) error {
-	if err := r.ensureDatePartition(ctx, date); err != nil {
-		return err
-	}
 	if err := r.dao.UpdateTopicIDByTsCodeAndDate(ctx, date, tsCode, topicID); err != nil {
 		return err
 	}
@@ -154,9 +115,6 @@ func (r *snapshotRepoImpl) invalidateBeforeOrEqual(ctx context.Context, cutoffDa
 }
 
 func dateFromSnapshotCacheKey(key string) (string, bool) {
-	// Keys are produced by DailySnapshotCacheImpl:
-	// - snapshot:data:YYYY-MM-DD
-	// - snapshot:limitup:YYYY-MM-DD
 	const dataPrefix = "snapshot:data:"
 	const limitPrefix = "snapshot:limitup:"
 	if strings.HasPrefix(key, dataPrefix) {
@@ -166,15 +124,4 @@ func dateFromSnapshotCacheKey(key string) (string, bool) {
 		return strings.TrimPrefix(key, limitPrefix), true
 	}
 	return "", false
-}
-
-func (r *snapshotRepoImpl) ensureDatePartition(ctx context.Context, date string) error {
-	target, err := time.ParseInLocation("2006-01-02", date, time.Local)
-	if err != nil {
-		return fmt.Errorf("parse snapshot date %s: %w", date, err)
-	}
-	if err := r.partitionEnsurer.EnsureMonthPartition(ctx, target); err != nil {
-		return fmt.Errorf("ensure snapshot partition: %w", err)
-	}
-	return nil
 }

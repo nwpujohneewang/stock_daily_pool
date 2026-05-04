@@ -54,12 +54,9 @@ func (c *ClassificationCacheImpl) MergeClassificationResult(ctx context.Context,
 	}
 
 	for tsCode, topics := range results {
-		// Only add if not already present (preserve existing)
-		if _, exists := hashMap[tsCode]; !exists {
-			copied := make([]dal_model.TopicRelation, len(topics))
-			copy(copied, topics)
-			hashMap[tsCode] = copied
-		}
+		copied := make([]dal_model.TopicRelation, len(topics))
+		copy(copied, topics)
+		hashMap[tsCode] = copied
 	}
 
 	Cache.Set(key, hashMap, TTLUntilEndOfDay())

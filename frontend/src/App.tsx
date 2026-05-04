@@ -262,6 +262,23 @@ export default function App() {
   const [schedulerActionError, setSchedulerActionError] = useState<string | null>(null);
   const [schedulerActionSuccess, setSchedulerActionSuccess] = useState<string | null>(null);
 
+  // LLM Classify History Test
+  const [llmClassifyDate, setLlmClassifyDate] = useState(() => {
+    const d = new Date();
+    d.setDate(d.getDate() - 1);
+    return d.toISOString().split('T')[0];
+  });
+  const [llmClassifyLoading, setLlmClassifyLoading] = useState(false);
+  const [llmClassifyResult, setLlmClassifyResult] = useState<{ status: string; date: string; elapsed_ms: number; total: number; results: { ts_code: string; name: string; topic_name: string; topic_id: number; category: string; confidence: number }[] } | null>(null);
+  const [llmClassifyError, setLlmClassifyError] = useState<string | null>(null);
+
+  // Hot Spot Fetch News
+  const [fetchNewsLoading, setFetchNewsLoading] = useState(false);
+  const [fetchNewsResult, setFetchNewsResult] = useState<{ total: number; news: { title: string; content: string; source: string; importance: number; published_at: string }[] } | null>(null);
+  const [fetchNewsError, setFetchNewsError] = useState<string | null>(null);
+  const [fetchNewsSource, setFetchNewsSource] = useState<'all' | 'cls' | 'eastmoney'>('all');
+  const [fetchNewsImportance, setFetchNewsImportance] = useState<'high' | 'medium' | 'low'>('medium');
+
   const fetchStocks = async (page = 1) => {
     setIsSearchingStock(true);
     setStockPage(page);
@@ -419,6 +436,53 @@ export default function App() {
       setSchedulerActionError(getApiErrorMessage(err, '调度任务触发失败'));
     } finally {
       setSchedulerActionLoading(null);
+    }
+  };
+
+  const handleLLMClassifyHistory = async () => {
+    if (!llmClassifyDate) {
+      setLlmClassifyError('请选择日期');
+      return;
+    }
+    setLlmClassifyLoading(true);
+    setLlmClassifyError(null);
+    setLlmClassifyResult(null);
+    try {
+      const res = await axios.post(`/api/v1/llm-classify/run-history?date=${llmClassifyDate}`, {}, {
+        headers: { 'X-API-Key': 'test-api-key' },
+        timeout: 600000,
+      });
+      if (res.data && res.data.code === 0) {
+        setLlmClassifyResult(res.data.data);
+      } else {
+        setLlmClassifyError(res.data?.message || res.data?.msg || 'LLM分类失败');
+      }
+    } catch (err: unknown) {
+      setLlmClassifyError(getApiErrorMessage(err, 'LLM分类请求失败'));
+    } finally {
+      setLlmClassifyLoading(false);
+    }
+  };
+
+  const handleFetchNews = async () => {
+    setFetchNewsLoading(true);
+    setFetchNewsError(null);
+    setFetchNewsResult(null);
+    try {
+      const res = await axios.get('/api/v1/hot-spot/fetch-news', {
+        params: { source: fetchNewsSource, importance: fetchNewsImportance },
+        headers: { 'X-API-Key': 'test-api-key' },
+        timeout: 30000,
+      });
+      if (res.data && res.data.code === 0) {
+        setFetchNewsResult(res.data.data);
+      } else {
+        setFetchNewsError(res.data?.message || res.data?.msg || '获取新闻失败');
+      }
+    } catch (err: unknown) {
+      setFetchNewsError(getApiErrorMessage(err, '获取新闻失败'));
+    } finally {
+      setFetchNewsLoading(false);
     }
   };
 
@@ -1111,44 +1175,166 @@ export default function App() {
                   )}
                 </div>
 
-                <div className="bg-white rounded-[20px] shadow-horizon-card p-6 md:col-span-2">
-                  <h3 className="text-lg font-bold text-horizon-text-primary mb-2">Scheduler 调试触发</h3>
-                  <p className="text-sm text-slate-500 mb-4">用于本地验证定时任务逻辑，无需等待 cron 时间到达。</p>
-                  <div className="flex flex-wrap gap-3">
+                {/* Fetch News Test */}
+                <div className="bg-white rounded-[20px] shadow-horizon-card p-6">
+                  <h3 className="text-lg font-bold text-horizon-text-primary mb-4">热点新闻抓取</h3>
+                  <div className="flex items-end gap-3 flex-wrap mb-4">
+                    <div>
+                      <label className="block text-sm text-slate-500 mb-1">数据源</label>
+                      <select
+                        value={fetchNewsSource}
+                        onChange={(e) => setFetchNewsSource(e.target.value as 'all' | 'cls' | 'eastmoney')}
+                        className="px-3 py-2 bg-white rounded-lg border border-slate-200 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/10"
+                      >
+                        <option value="all">全部</option>
+                        <option value="cls">财联社</option>
+                        <option value="eastmoney">东方财富</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm text-slate-500 mb-1">最低重要性</label>
+                      <select
+                        value={fetchNewsImportance}
+                        onChange={(e) => setFetchNewsImportance(e.target.value as 'high' | 'medium' | 'low')}
+                        className="px-3 py-2 bg-white rounded-lg border border-slate-200 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/10"
+                      >
+                        <option value="high">仅重要 (A级)</option>
+                        <option value="medium">较重要+ (B级以上)</option>
+                        <option value="low">全部</option>
+                      </select>
+                    </div>
                     <button
-                      onClick={() => handleSchedulerAction('pre_market_init', '盘前初始化已触发')}
-                      disabled={schedulerActionLoading !== null}
-                      className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 font-semibold transition-colors"
+                      onClick={handleFetchNews}
+                      disabled={fetchNewsLoading}
+                      className="px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700 disabled:opacity-50 flex items-center gap-2 font-semibold transition-colors"
                     >
-                      {schedulerActionLoading === 'pre_market_init' ? '触发中...' : '盘前初始化'}
-                    </button>
-                    <button
-                      onClick={() => handleSchedulerAction('load_yesterday_strong', '昨日强势池加载已触发')}
-                      disabled={schedulerActionLoading !== null}
-                      className="px-4 py-2 bg-cyan-600 text-white rounded-lg hover:bg-cyan-700 disabled:opacity-50 font-semibold transition-colors"
-                    >
-                      {schedulerActionLoading === 'load_yesterday_strong' ? '触发中...' : '加载昨日强势池'}
-                    </button>
-                    <button
-                      onClick={() => handleSchedulerAction('closing_snapshot', '收盘快照已触发')}
-                      disabled={schedulerActionLoading !== null}
-                      className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 font-semibold transition-colors"
-                    >
-                      {schedulerActionLoading === 'closing_snapshot' ? '触发中...' : '收盘快照'}
-                    </button>
-                    <button
-                      onClick={() => handleSchedulerAction('sync_stock_basic', '股票基础信息同步已触发')}
-                      disabled={schedulerActionLoading !== null}
-                      className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-50 font-semibold transition-colors"
-                    >
-                      {schedulerActionLoading === 'sync_stock_basic' ? '触发中...' : '同步股票基础信息'}
+                      {fetchNewsLoading ? (
+                        <>
+                          <RefreshCw size={16} className="animate-spin" />
+                          抓取中...
+                        </>
+                      ) : (
+                        '抓取新闻'
+                      )}
                     </button>
                   </div>
-                  {schedulerActionError && (
-                    <div className="mt-3 p-3 bg-rose-50 border border-rose-200 rounded-lg text-rose-600 text-sm">{schedulerActionError}</div>
+                  {fetchNewsError && (
+                    <div className="p-3 bg-rose-50 border border-rose-200 rounded-lg text-rose-600 text-sm">{fetchNewsError}</div>
                   )}
-                  {schedulerActionSuccess && (
-                    <div className="mt-3 p-3 bg-emerald-50 border border-emerald-200 rounded-lg text-emerald-700 text-sm">{schedulerActionSuccess}</div>
+                  {fetchNewsResult && (
+                    <div>
+                      <div className="text-sm text-slate-500 mb-2">共 <strong>{fetchNewsResult.total}</strong> 条新闻</div>
+                      <div className="max-h-60 overflow-y-auto space-y-2">
+                        {fetchNewsResult.news.map((item, i) => (
+                          <div key={i} className="p-3 bg-slate-50 rounded-lg border border-slate-100">
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className={clsx(
+                                "text-[10px] font-bold px-1.5 py-0.5 rounded",
+                                item.source === 'cls' ? "bg-blue-50 text-blue-600" : "bg-orange-50 text-orange-600"
+                              )}>
+                                {item.source === 'cls' ? '财联社' : '东方财富'}
+                              </span>
+                              <span className={clsx(
+                                "text-[10px] font-bold px-1.5 py-0.5 rounded",
+                                item.importance === 'high' ? "bg-rose-50 text-rose-600" : item.importance === 'medium' ? "bg-amber-50 text-amber-600" : "bg-slate-50 text-slate-400"
+                              )}>
+                                {item.importance === 'high' ? '重要' : item.importance === 'medium' ? '较重要' : '一般'}
+                              </span>
+                              <span className="text-xs text-slate-400">{item.published_at}</span>
+                            </div>
+                            <div className="text-sm font-medium text-slate-700">{item.title}</div>
+                            {item.content && <div className="text-xs text-slate-500 mt-1 line-clamp-2">{item.content}</div>}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* LLM Classify Test */}
+                <div className="bg-white rounded-[20px] shadow-horizon-card p-6 md:col-span-2">
+                  <h3 className="text-lg font-bold text-horizon-text-primary mb-2">LLM分类测试（历史数据）</h3>
+                  <div className="flex items-end gap-3 flex-wrap mb-4">
+                    <div>
+                      <label className="block text-sm text-slate-500 mb-1">交易日期</label>
+                      <input
+                        type="date"
+                        value={llmClassifyDate}
+                        onChange={(e) => setLlmClassifyDate(e.target.value)}
+                        className="px-3 py-2 bg-white rounded-lg border border-slate-200 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/10"
+                      />
+                    </div>
+                    <button
+                      onClick={handleLLMClassifyHistory}
+                      disabled={llmClassifyLoading}
+                      className="px-4 py-2 bg-violet-600 text-white rounded-lg hover:bg-violet-700 disabled:opacity-50 flex items-center gap-2 font-semibold transition-colors"
+                    >
+                      {llmClassifyLoading ? (
+                        <>
+                          <RefreshCw size={16} className="animate-spin" />
+                          分类中...
+                        </>
+                      ) : (
+                        '触发LLM分类'
+                      )}
+                    </button>
+                  </div>
+                  {llmClassifyError && (
+                    <div className="mb-3 p-3 bg-rose-50 border border-rose-200 rounded-lg text-rose-600 text-sm">{llmClassifyError}</div>
+                  )}
+                  {llmClassifyResult && (
+                    <div>
+                      <div className="flex items-center gap-4 mb-3 text-sm text-slate-500">
+                        <span className="font-medium text-emerald-600">{llmClassifyResult.status === 'completed' ? '分类完成' : llmClassifyResult.status}</span>
+                        <span>日期：{llmClassifyResult.date}</span>
+                        <span>耗时：{(llmClassifyResult.elapsed_ms / 1000).toFixed(1)}s</span>
+                        <span>共 <strong>{llmClassifyResult.total}</strong> 只股票</span>
+                      </div>
+                      {llmClassifyResult.results.length > 0 && (
+                        <div className="overflow-x-auto max-h-80 overflow-y-auto rounded-lg border border-slate-200">
+                          <table className="w-full text-left text-sm">
+                            <thead className="bg-slate-50 sticky top-0">
+                              <tr>
+                                <th className="px-3 py-2 text-slate-500 font-medium">代码</th>
+                                <th className="px-3 py-2 text-slate-500 font-medium">名称</th>
+                                <th className="px-3 py-2 text-slate-500 font-medium">热点</th>
+                                <th className="px-3 py-2 text-slate-500 font-medium">TopicID</th>
+                                <th className="px-3 py-2 text-slate-500 font-medium">分类</th>
+                                <th className="px-3 py-2 text-slate-500 font-medium text-right">置信度</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {llmClassifyResult.results.map((item) => (
+                                <tr key={item.ts_code} className="border-t border-slate-100 hover:bg-slate-50">
+                                  <td className="px-3 py-2 text-slate-500 font-mono text-xs">{item.ts_code}</td>
+                                  <td className="px-3 py-2 font-medium">{item.name}</td>
+                                  <td className="px-3 py-2">
+                                    <span className="bg-violet-100 text-violet-700 text-xs px-2 py-0.5 rounded-full">{item.topic_name}</span>
+                                  </td>
+                                  <td className="px-3 py-2 text-slate-500 font-mono text-xs">{item.topic_id || <span className="text-rose-400">缺失</span>}</td>
+                                  <td className="px-3 py-2">
+                                    {item.category ? (
+                                      <span className={clsx(
+                                        "text-xs px-2 py-0.5 rounded-full",
+                                        item.category === '行业' ? "bg-blue-50 text-blue-600" :
+                                        item.category === '概念' ? "bg-amber-50 text-amber-600" :
+                                        "bg-slate-50 text-slate-500"
+                                      )}>{item.category}</span>
+                                    ) : (
+                                      <span className="text-rose-400 text-xs">缺失</span>
+                                    )}
+                                  </td>
+                                  <td className="px-3 py-2 text-right text-slate-600">{(item.confidence * 100).toFixed(0)}%</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                      {llmClassifyResult.total === 0 && (
+                        <p className="text-sm text-slate-400">无符合条件的股票（可能为非交易日）</p>
+                      )}
+                    </div>
                   )}
                 </div>
               </div>

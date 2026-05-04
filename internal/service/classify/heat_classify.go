@@ -9,20 +9,6 @@ import (
 	"stock/model/dal_model"
 )
 
-// Heat classify (online path)
-//
-// This file implements a lightweight "heat-based" topic classification:
-// - Heat universe: stocks with pct_chg > HeatRisingThreshold (default 3%) contribute to topic heat stats.
-// - Classification universe: stocks with pct_chg > ClassifyThreshold (default 5%) get a final topic.
-//
-// Assignment order & rules:
-//  1. Limit-up stocks first:
-//     manual relation > recent relation (<= 7 days) > best topic by today's heat ranking.
-//  2. Strong (non-limit-up) stocks next:
-//     try topics already claimed by limit-up stocks > otherwise fall back to heat ranking.
-//
-// Note: We intentionally keep this logic count-based (limit-up count / strong count / participation),
-// so the behavior is stable and easy to reason about.
 type StockQuoteInput struct {
 	TsCode        string
 	ChangePercent float64

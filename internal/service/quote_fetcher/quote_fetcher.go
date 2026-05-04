@@ -2,10 +2,10 @@ package quote_fetcher
 
 import (
 	"context"
+	"stock/external/tushare"
 	"time"
 
 	"stock/dal/cache"
-	"stock/internal/external/tushare"
 	"stock/internal/pkg/logger"
 	"stock/model/dal_model"
 

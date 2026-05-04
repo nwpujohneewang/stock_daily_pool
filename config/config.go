@@ -70,15 +70,14 @@ type JiuyanConfig struct {
 
 // LLMConfig is LLM configuration
 type LLMConfig struct {
-	Provider            string  `yaml:"provider"`
-	Model               string  `yaml:"model"`
-	APIKey              string  `yaml:"api_key"`
-	APIURL              string  `yaml:"api_url"`
-	Temperature         float64 `yaml:"temperature"`
-	MaxTokens           int     `yaml:"max_tokens"`
-	ConfidenceThreshold float64 `yaml:"confidence_threshold"`
-	MaxConcurrent       int     `yaml:"max_concurrent"`
-	Timeout             int     `yaml:"timeout"`
+	Provider            string  `yaml:"provider" mapstructure:"provider"`
+	Model               string  `yaml:"model" mapstructure:"model"`
+	APIKey              string  `yaml:"api_key" mapstructure:"api_key"`
+	APIURL              string  `yaml:"api_url" mapstructure:"api_url"`
+	MaxTokens           int     `yaml:"max_tokens" mapstructure:"max_tokens"`
+	ConfidenceThreshold float64 `yaml:"confidence_threshold" mapstructure:"confidence_threshold"`
+	MaxConcurrent       int     `yaml:"max_concurrent" mapstructure:"max_concurrent"`
+	Timeout             int     `yaml:"timeout" mapstructure:"timeout"`
 }
 
 // CircuitBreakerConfig is circuit breaker configuration

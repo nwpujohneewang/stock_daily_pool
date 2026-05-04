@@ -7,19 +7,20 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"stock/internal/scheduler"
-	"stock/internal/service/limitdetail"
-	"stock/internal/service/monitor"
 	"syscall"
 	"time"
 
 	"stock/config"
 	"stock/dal/cache"
 	"stock/dal/dao"
-	"stock/internal/external/tushare"
+	"stock/external/llm"
+	extNews "stock/external/news"
+	"stock/external/tushare"
 	"stock/internal/handler"
 	"stock/internal/pkg/logger"
-	"stock/internal/ws"
+	"stock/internal/scheduler"
+	"stock/internal/service/limitdetail"
+	"stock/internal/service/monitor"
 )
 
 func main() {
@@ -40,17 +41,20 @@ func main() {
 
 	// Initialize external clients
 	tushareClient := tushare.NewClient(&cfg.Tushare, cfg.Retry)
+	llmClient := llm.NewClient(&cfg.LLM)
 
-	monitor.Init(tushareClient, &cfg.Monitor)
+	monitor.Init(tushareClient, llmClient, &cfg.LLM, &cfg.Monitor)
 	limitdetail.Init(tushareClient)
 	s := scheduler.NewScheduler(&cfg.Scheduler, monitor.GetInstance())
 	s.Setup()
 	s.Start()
 
-	hub := ws.NewHub()
-	go hub.Run(ctx)
-
-	handlers := handler.NewHandlers(hub, cfg, s)
+	newsAgg := extNews.NewAggregator(
+		extNews.NewCLSClient(logger.Log),
+		extNews.NewEastMoneyClient(logger.Log),
+		logger.Log,
+	)
+	handlers := handler.NewHandlers(cfg, s, newsAgg)
 
 	// Setup Gin router
 	router := setupRouter(cfg, handlers)

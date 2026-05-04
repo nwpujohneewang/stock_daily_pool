@@ -6,7 +6,7 @@ import (
 	"stock/config"
 	"stock/dal/cache"
 	"stock/dal/repo"
-	"stock/internal/external/tushare"
+	"stock/external/tushare"
 	"stock/internal/pkg/limiter"
 	"stock/internal/pkg/logger"
 	"stock/internal/pkg/utils"
@@ -327,11 +327,11 @@ func (s *PoolServiceImpl) reclassifyToday(ctx context.Context, date string) (*Re
 		var mv *float64
 		if stock.TotalMv != nil {
 			if quote.PreClose > 0 {
-				val := (*stock.TotalMv) * (quote.Price / quote.PreClose)
+				val := *stock.TotalMv * (quote.Price / quote.PreClose)
 				mv = &val
 			} else {
 				// 兜底：若缺昨收，则用涨跌幅估算(1 + pct/100)
-				val := (*stock.TotalMv) * (1.0 + quote.PctChg/100.0)
+				val := *stock.TotalMv * (1.0 + quote.PctChg/100.0)
 				mv = &val
 			}
 		}
@@ -378,7 +378,7 @@ func (s *PoolServiceImpl) reclassifyToday(ctx context.Context, date string) (*Re
 			continue
 		}
 
-		vol := float64(quote.Vol)
+		vol := float64(quote.Vol / 1000)
 		amount := quote.Amount / 1000.0
 		// 实时总市值（万元）≈ 昨日总市值（万元） * (当前价 / 昨收)
 		var mv *float64

@@ -2,12 +2,12 @@ package limitdetail
 
 import (
 	"context"
+	"stock/external/tushare"
 	"strings"
 	"sync"
 	"time"
 
 	"stock/dal/cache"
-	"stock/internal/external/tushare"
 	"stock/internal/pkg/logger"
 
 	"go.uber.org/zap"

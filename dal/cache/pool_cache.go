@@ -245,7 +245,11 @@ func (c PoolCacheImpl) GetAllFirstLimitTime(ctx context.Context, date string) (m
 	defer RUnlock()
 	if v, found := Cache.Get(key); found {
 		hashMap := v.(map[string]string)
-		return hashMap, nil
+		result := make(map[string]string, len(hashMap))
+		for k, v := range hashMap {
+			result[k] = v
+		}
+		return result, nil
 	}
 	return map[string]string{}, nil
 }
