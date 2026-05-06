@@ -258,9 +258,6 @@ export default function App() {
   const [snapshotLoading, setSnapshotLoading] = useState(false);
   const [snapshotError, setSnapshotError] = useState<string | null>(null);
   const [snapshotSuccessMsg, setSnapshotSuccessMsg] = useState<string | null>(null);
-  const [schedulerActionLoading, setSchedulerActionLoading] = useState<string | null>(null);
-  const [schedulerActionError, setSchedulerActionError] = useState<string | null>(null);
-  const [schedulerActionSuccess, setSchedulerActionSuccess] = useState<string | null>(null);
 
   // LLM Classify History Test
   const [llmClassifyDate, setLlmClassifyDate] = useState(() => {
@@ -274,7 +271,7 @@ export default function App() {
 
   // Hot Spot Fetch News
   const [fetchNewsLoading, setFetchNewsLoading] = useState(false);
-  const [fetchNewsResult, setFetchNewsResult] = useState<{ total: number; news: { title: string; content: string; source: string; importance: number; published_at: string }[] } | null>(null);
+  const [fetchNewsResult, setFetchNewsResult] = useState<{ total: number; news: { title: string; content: string; source: string; importance: string; published_at: string }[] } | null>(null);
   const [fetchNewsError, setFetchNewsError] = useState<string | null>(null);
   const [fetchNewsSource, setFetchNewsSource] = useState<'all' | 'cls' | 'eastmoney'>('all');
   const [fetchNewsImportance, setFetchNewsImportance] = useState<'high' | 'medium' | 'low'>('medium');
@@ -417,25 +414,6 @@ export default function App() {
       setSnapshotError(getApiErrorMessage(err, '触发失败'));
     } finally {
       setSnapshotLoading(false);
-    }
-  };
-  const handleSchedulerAction = async (endpoint: string, successText: string) => {
-    setSchedulerActionError(null);
-    setSchedulerActionSuccess(null);
-    setSchedulerActionLoading(endpoint);
-    try {
-      const res = await axios.post(`/api/v1/scheduler/${endpoint}`, {}, {
-        headers: { 'X-API-Key': 'test-api-key' }
-      });
-      if (res.data && res.data.code === 0) {
-        setSchedulerActionSuccess(successText);
-      } else {
-        setSchedulerActionError(res.data?.message || res.data?.msg || '调度任务触发失败');
-      }
-    } catch (err: unknown) {
-      setSchedulerActionError(getApiErrorMessage(err, '调度任务触发失败'));
-    } finally {
-      setSchedulerActionLoading(null);
     }
   };
 
