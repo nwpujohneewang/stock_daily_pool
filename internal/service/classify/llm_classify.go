@@ -85,6 +85,22 @@ func (s *LLMClassifyService) RunClassification(
 	if err != nil {
 		logger.Warn("get llm classification result failed", zap.Error(err))
 	}
+
+	// If cache miss, try loading from database as a fallback before calling LLM.
+	if !hit || len(existingResults) == 0 {
+		dbResults, dbErr := s.loadFromDB(ctx, date, allCodes)
+		if dbErr != nil {
+			logger.Warn("load llm classify results from db failed", zap.Error(dbErr))
+		} else if len(dbResults) > 0 {
+			existingResults = dbResults
+			hit = true
+			if mergeErr := s.llmCache.MergeClassificationResult(ctx, date, dbResults); mergeErr != nil {
+				logger.Warn("merge db results to cache failed", zap.Error(mergeErr))
+			}
+			logger.Info("loaded llm classify results from db", zap.Int("count", len(dbResults)))
+		}
+	}
+
 	limitUpStocks = filterIncremental(limitUpStocks, relationsByStock, existingResults, hit, date)
 	strongStocks = filterIncremental(strongStocks, relationsByStock, existingResults, hit, date)
 	if len(limitUpStocks) == 0 && len(strongStocks) == 0 {
@@ -110,6 +126,10 @@ func (s *LLMClassifyService) RunClassification(
 
 	if err := s.llmCache.MergeClassificationResult(ctx, date, merged); err != nil {
 		logger.Warn("merge llm classification result failed", zap.Error(err))
+	}
+
+	if err := s.saveToDB(ctx, date, merged); err != nil {
+		logger.Warn("save llm classify results to db failed", zap.Error(err))
 	}
 
 	logger.Info("llm classify completed",
@@ -154,7 +174,7 @@ func (s *LLMClassifyService) classifyBatch(
 	if len(stocks) == 0 {
 		return nil, nil
 	}
-
+	stocks = stocks[:2]
 	batches := splitIntoBatches(stocks, llmBatchSize)
 	maxConcurrent := s.cfg.MaxConcurrent
 	if maxConcurrent <= 0 {
@@ -212,7 +232,7 @@ func (s *LLMClassifyService) classifyBatch(
 				continue
 			}
 			results[item.TsCode] = []dal_model.TopicRelation{
-				{TopicName: item.TopicName, Confidence: item.Confidence},
+				{TopicName: item.TopicName, Confidence: item.Confidence, Reason: item.Reasoning},
 			}
 			assignedTopicNames = append(assignedTopicNames, item.TopicName)
 		}
@@ -258,70 +278,17 @@ func enrichLLMResults(ctx context.Context, results map[string][]dal_model.TopicR
 	}
 
 	if len(missingNames) > 0 {
-		dictCache := cache.NewTopicDictionaryCache()
-		dictMap, cacheHit := dictCache.GetAllMap(ctx)
-		if !cacheHit {
-			dictDAO := dao.NewTopicDictionaryDAO()
-			dbMap, err := dictDAO.GetAllMap(ctx)
-			if err != nil {
-				logger.Warn("enrichLLMResults: load topic_dictionary failed", zap.Error(err))
-			} else {
-				dictMap = dbMap
-				_ = dictCache.SetAllMap(ctx, dbMap)
-			}
-		}
-
 		topicRepo := repo.NewTopicRepository()
 		deduped := dedupeStrings(missingNames)
-
-		for _, name := range deduped {
-			mapKey := "|" + name
-			if _, exists := enrichMap[mapKey]; exists {
-				continue
-			}
-			if dict, ok := dictMap[name]; ok {
-				enrichMap[mapKey] = enrichInfo{Category: dict.Category}
-			}
-		}
-
-		var stillMissing []string
-		for _, name := range deduped {
-			mapKey := "|" + name
-			if info, exists := enrichMap[mapKey]; exists && info.Category != "" {
-				topic, err := topicRepo.GetByName(ctx, name)
-				if err == nil && topic != nil {
-					enrichMap[mapKey] = enrichInfo{TopicID: topic.ID, Category: info.Category}
-				} else {
-					stillMissing = append(stillMissing, name)
-				}
-			} else {
-				stillMissing = append(stillMissing, name)
+		topicList, err := topicRepo.GetByNames(ctx, deduped)
+		if err != nil {
+			logger.Warn("enrichLLMResults: lookup topics by names failed", zap.Error(err))
+		} else {
+			for _, t := range topicList {
+				mapKey := "|" + t.Name
+				enrichMap[mapKey] = enrichInfo{TopicID: t.ID, Category: t.Category}
 			}
 		}
-
-		//if len(stillMissing) > 0 {
-		//	dictDAO := dao.NewTopicDictionaryDAO()
-		//	now := time.Now()
-		//	for _, name := range stillMissing {
-		//		dict := dal_model.TopicDictionary{
-		//			RawTopicName:   name,
-		//			NormalizedName: name,
-		//			Category:       "",
-		//			Source:         2,
-		//			CreatedAt:      now,
-		//			UpdatedAt:      now,
-		//		}
-		//		created, err := dictDAO.Create(ctx, dict)
-		//		if err != nil {
-		//			logger.Warn("enrichLLMResults: insert topic_dictionary failed",
-		//				zap.String("name", name), zap.Error(err))
-		//			continue
-		//		}
-		//		mapKey := "|" + name
-		//		enrichMap[mapKey] = enrichInfo{Category: created.Category}
-		//		_ = dictCache.SetAllMap(ctx, map[string]dal_model.TopicDictionary{name: *created})
-		//	}
-		//}
 	}
 
 	for tsCode, relations := range results {
@@ -524,4 +491,48 @@ func hasRecentLastSeen(relations []dal_model.TopicRelation, date string) bool {
 		}
 	}
 	return false
+}
+
+func (s *LLMClassifyService) loadFromDB(ctx context.Context, date string, tsCodes []string) (map[string][]dal_model.TopicRelation, error) {
+	if len(tsCodes) == 0 {
+		return nil, nil
+	}
+	daoImpl := dao.NewLLMClassifyResultDAO()
+	rows, err := daoImpl.GetByDateAndTsCodes(ctx, date, tsCodes)
+	if err != nil {
+		return nil, err
+	}
+	if len(rows) == 0 {
+		return nil, nil
+	}
+	results := make(map[string][]dal_model.TopicRelation, len(rows))
+	for _, row := range rows {
+		results[row.TsCode] = append(results[row.TsCode], dal_model.TopicRelation{
+			TopicName: row.Topic,
+			Source:    "llm",
+		})
+	}
+	return results, nil
+}
+
+func (s *LLMClassifyService) saveToDB(ctx context.Context, date string, results map[string][]dal_model.TopicRelation) error {
+	if len(results) == 0 {
+		return nil
+	}
+	dateTime := dao.ParseDate(date)
+	rows := make([]dal_model.LLMClassifyResult, 0, len(results))
+	for tsCode, relations := range results {
+		if len(relations) == 0 {
+			continue
+		}
+		r := relations[0]
+		rows = append(rows, dal_model.LLMClassifyResult{
+			TsCode: tsCode,
+			Date:   dateTime,
+			Topic:  r.TopicName,
+			Reason: r.Reason,
+		})
+	}
+	daoImpl := dao.NewLLMClassifyResultDAO()
+	return daoImpl.UpsertBatch(ctx, rows)
 }

@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"stock/config"
+	"stock/dal/cache"
+	"stock/dal/dao"
 	"stock/dal/repo"
 	"stock/internal/pkg/limiter"
 	"stock/internal/pkg/logger"
@@ -23,20 +25,6 @@ type SnapshotServiceImpl struct {
 
 func NewSnapshotService() *SnapshotServiceImpl {
 	return &SnapshotServiceImpl{}
-}
-
-func buildSnapshotTopicIDMap(candidateCodes []string, classifyResults map[string][]dal_model.TopicRelation) (map[string]int64, []string) {
-	topicIDMap := make(map[string]int64, len(candidateCodes))
-	missing := make([]string, 0)
-	for _, tsCode := range candidateCodes {
-		topics := classifyResults[tsCode]
-		if len(topics) == 0 || topics[0].TopicID == 0 {
-			missing = append(missing, tsCode)
-			continue
-		}
-		topicIDMap[tsCode] = topics[0].TopicID
-	}
-	return topicIDMap, missing
 }
 
 func buildSnapshotRecord(date time.Time, tsCode, stockName string, topicID *int64, changePct float64, isLimitUp bool, limitTimes int16, consecutiveDays int16, totalMv *float64, vol float64, amount float64) dal_model.DailyStockSnapshot {
@@ -69,28 +57,10 @@ func (s *SnapshotServiceImpl) TakeSnapshot(ctx context.Context, date string) err
 	}
 
 	// Step 2: Keep the wider eligible universe for by-heat classification; final output still only persists >5% stocks.
-	// Pre-fetch stock info to filter out ST and BSE stocks.
-	allStocks, _ := stockRepo.GetAllStocks(ctx)
-	stockInfoMap := make(map[string]*dal_model.StockBasicInfo, len(allStocks))
-	for i := range allStocks {
-		stockInfoMap[allStocks[i].TsCode] = &allStocks[i]
-	}
-
 	candidateCodes := make([]string, 0)
 	quoteMap := make(map[string]*tushare.QuoteItem)
 	allHeatInputs := make([]classify.StockQuoteInput, 0, len(quotes))
 	for _, q := range quotes {
-		if info, ok := stockInfoMap[q.TsCode]; ok {
-			if info.IsST {
-				continue
-			}
-		}
-		if len(q.TsCode) >= 1 {
-			c := q.TsCode[0]
-			if c == '8' || c == '4' || c == '9' {
-				continue
-			}
-		}
 		if q.PctChg > classify.HeatRisingThreshold {
 			allHeatInputs = append(allHeatInputs, classify.StockQuoteInput{
 				TsCode:        q.TsCode,
@@ -135,7 +105,7 @@ func (s *SnapshotServiceImpl) TakeSnapshot(ctx context.Context, date string) err
 		stockNameMap[st.TsCode] = st.Name
 	}
 
-	// Step 6: Persist the final chosen topic for each stock so historical replay is stable.
+	// Step 6: Classify stocks — prefer LLM results, fall back to heat classification.
 	boardRules := map[dal_model.BoardCode]*dal_model.BoardRule{
 		dal_model.BoardMain: {BoardCode: dal_model.BoardMain, LimitUpRatio: 0.10},
 		dal_model.BoardGEM:  {BoardCode: dal_model.BoardGEM, LimitUpRatio: 0.20},
@@ -143,6 +113,10 @@ func (s *SnapshotServiceImpl) TakeSnapshot(ctx context.Context, date string) err
 		dal_model.BoardBSE:  {BoardCode: dal_model.BoardBSE, LimitUpRatio: 0.30},
 	}
 	classifySvc := classify.NewClassifyService()
+	stockInfoMap := make(map[string]*dal_model.StockBasicInfo, len(stocks))
+	for i := range stocks {
+		stockInfoMap[stocks[i].TsCode] = &stocks[i]
+	}
 	for i := range allHeatInputs {
 		input := &allHeatInputs[i]
 		name := stockNameMap[input.TsCode]
@@ -176,11 +150,47 @@ func (s *SnapshotServiceImpl) TakeSnapshot(ctx context.Context, date string) err
 		}
 		input.IsLimitUp = isLimitUp
 	}
-	classifyResults, err := classifySvc.ClassifyBySimpleHeat(ctx, allHeatInputs, date)
-	if err != nil {
-		logger.Warn("heat classify snapshot stocks failed", zap.Error(err), zap.Int("count", len(allHeatInputs)))
+
+	// 6a: Try LLM classification results (cache → DB) first.
+	llmResults := s.loadLLMResults(ctx, date, candidateCodes)
+	topicIDMap := make(map[string]int64)
+	needHeatCodes := make([]string, 0)
+	for _, tsCode := range candidateCodes {
+		if id, ok := llmResults[tsCode]; ok && id != 0 {
+			topicIDMap[tsCode] = id
+		} else {
+			needHeatCodes = append(needHeatCodes, tsCode)
+		}
 	}
-	topicIDMap, missingTopicCodes := buildSnapshotTopicIDMap(candidateCodes, classifyResults)
+
+	// 6b: Heat classification fills gaps for stocks not covered by LLM.
+	if len(needHeatCodes) > 0 {
+		heatInputs := make([]classify.StockQuoteInput, 0, len(needHeatCodes))
+		for _, code := range needHeatCodes {
+			for i := range allHeatInputs {
+				if allHeatInputs[i].TsCode == code {
+					heatInputs = append(heatInputs, allHeatInputs[i])
+					break
+				}
+			}
+		}
+		heatResults, err := classifySvc.ClassifyBySimpleHeat(ctx, heatInputs, date)
+		if err != nil {
+			logger.Warn("heat classify snapshot stocks failed", zap.Error(err), zap.Int("count", len(heatInputs)))
+		}
+		for _, tsCode := range needHeatCodes {
+			if topics, ok := heatResults[tsCode]; ok && len(topics) > 0 && topics[0].TopicID != 0 {
+				topicIDMap[tsCode] = topics[0].TopicID
+			}
+		}
+	}
+
+	missingTopicCodes := make([]string, 0)
+	for _, tsCode := range candidateCodes {
+		if _, ok := topicIDMap[tsCode]; !ok {
+			missingTopicCodes = append(missingTopicCodes, tsCode)
+		}
+	}
 	for _, tsCode := range missingTopicCodes {
 		logger.Warn("snapshot stock has no classified topic",
 			zap.String("date", date),
@@ -266,4 +276,59 @@ func (s *SnapshotServiceImpl) TakeSnapshot(ctx context.Context, date string) err
 		zap.Int("total", len(records)))
 
 	return nil
+}
+
+func (s *SnapshotServiceImpl) loadLLMResults(ctx context.Context, date string, tsCodes []string) map[string]int64 {
+	if len(tsCodes) == 0 {
+		return nil
+	}
+
+	// 1. Try in-memory cache first.
+	llmCache := cache.NewLLMClassificationCache()
+	if cached, hit, _ := llmCache.GetClassificationResult(ctx, date); hit && len(cached) > 0 {
+		result := make(map[string]int64)
+		for _, tsCode := range tsCodes {
+			if rels, ok := cached[tsCode]; ok && len(rels) > 0 && rels[0].TopicID != 0 {
+				result[tsCode] = rels[0].TopicID
+			}
+		}
+		if len(result) > 0 {
+			logger.Info("snapshot: loaded llm results from cache", zap.Int("count", len(result)))
+			return result
+		}
+	}
+
+	// 2. Fallback to database.
+	daoImpl := dao.NewLLMClassifyResultDAO()
+	rows, err := daoImpl.GetByDateAndTsCodes(ctx, date, tsCodes)
+	if err != nil || len(rows) == 0 {
+		return nil
+	}
+
+	topicNames := make([]string, 0, len(rows))
+	for _, row := range rows {
+		topicNames = append(topicNames, row.Topic)
+	}
+
+	topicRepo := repo.NewTopicRepository()
+	topicList, err := topicRepo.GetByNames(ctx, topicNames)
+	if err != nil {
+		logger.Warn("snapshot: lookup topics by names failed", zap.Error(err))
+		return nil
+	}
+	nameToID := make(map[string]int64, len(topicList))
+	for _, t := range topicList {
+		nameToID[t.Name] = t.ID
+	}
+
+	result := make(map[string]int64, len(rows))
+	for _, row := range rows {
+		if id, ok := nameToID[row.Topic]; ok {
+			result[row.TsCode] = id
+		}
+	}
+	if len(result) > 0 {
+		logger.Info("snapshot: loaded llm results from db", zap.Int("count", len(result)))
+	}
+	return result
 }

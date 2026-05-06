@@ -305,18 +305,17 @@ func (s *MonitorServiceImpl) Start(ctx context.Context) {
 
 	// Independent 10-minute LLM classification ticker, decoupled from ProcessTick.
 	if s.llmClassifyService != nil {
-		llmTimer := time.NewTimer(10 * time.Minute)
+		llmTicker := time.NewTicker(10 * time.Minute)
 		llmSvc := s.llmClassifyService
 		go func() {
-			defer llmTimer.Stop()
+			defer llmTicker.Stop()
 			for {
 				select {
 				case <-ctx.Done():
 					return
-				case <-llmTimer.C:
+				case <-llmTicker.C:
 					now := time.Now()
 					if !utils.IsTradingDay(now) || !s.isTradingTime(now) {
-						llmTimer.Reset(10 * time.Minute)
 						continue
 					}
 					s.snapshotMu.RLock()
@@ -326,13 +325,11 @@ func (s *MonitorServiceImpl) Start(ctx context.Context) {
 					limitUpSet := s.lastLimitUpSet
 					s.snapshotMu.RUnlock()
 					if date == "" || len(quotes) == 0 {
-						llmTimer.Reset(10 * time.Minute)
 						continue
 					}
 					if err := llmSvc.RunClassification(ctx, date, quotes, stockMap, limitUpSet); err != nil {
 						logger.Warn("llm classify failed", zap.Error(err))
 					}
-					llmTimer.Reset(10 * time.Minute)
 				}
 			}
 		}()

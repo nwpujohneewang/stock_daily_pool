@@ -30,4 +30,5 @@ type TopicRelation struct {
 	LastSeenDate string  `json:"last_seen_date"`
 	UpdatedAt    string  `json:"updated_at"`
 	Confidence   float64 `json:"confidence"`
+	Reason       string  `json:"reason,omitempty"`
 }
