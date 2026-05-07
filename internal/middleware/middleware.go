@@ -2,8 +2,10 @@ package middleware
 
 import (
 	"net/http"
+	"stock/internal/pkg/logger"
 
 	"github.com/gin-gonic/gin"
+	"go.uber.org/zap"
 )
 
 func AuthMiddleware(apiKey string) gin.HandlerFunc {
@@ -25,6 +27,16 @@ func AuthMiddleware(apiKey string) gin.HandlerFunc {
 			c.Abort()
 			return
 		}
+		c.Next()
+	}
+}
+
+func IpLogger() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ip := c.ClientIP()
+		method := c.Request.Method
+		path := c.Request.URL.Path
+		logger.Info("request", zap.String("ip", ip), zap.String("method", method), zap.String("path", path))
 		c.Next()
 	}
 }

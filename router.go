@@ -18,6 +18,7 @@ func setupRouter(cfg *config.AppConfig, h *handler.Handlers) *gin.Engine {
 	}
 
 	r := gin.Default()
+	r.Use(middleware.IpLogger())
 
 	// Serve frontend static files
 	r.Static("/assets", "./frontend/dist/assets")
