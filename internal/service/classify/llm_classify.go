@@ -345,7 +345,8 @@ confirmed_limitup_topics：涨停股票分类后的主题List
 - ts_code ： 股票code
 - topic_name： 分类名称
 - confidence：分类置信度，0.0-1.0之间的浮点数，表示你对分类结果的确信程度
-严格输出JSON数组，格式：[{"ts_code":"...","topic_name":"...","confidence":0.8}]`
+- reason: 分类的原因
+严格输出JSON数组，格式：[{"ts_code":"...","topic_name":"...","confidence":0.8,"reason":"xxx"}]`
 }
 
 type sectorEntry struct {
